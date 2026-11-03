@@ -22,7 +22,7 @@ Manager alone edits this board. Use the assignment contract in AGENT_WORKFLOW.md
 | 5 | AI integration/evaluations if needed | ai | pending | 2; product need established |
 | 6 | Integrate slice and run browser screenshot review | manager | done-with-limitations | Local browser walkthrough and desktop/tablet/mobile screenshots pass; backend/frontend live integration remains |
 | 7 | Independent security review | security + QA | in-progress | Contract checks pass; auth throttling, production headers and full E2E review remain |
-| 8 | Independent acceptance and visual verification | QA | done-with-limitations | 7 backend tests pass, 4 local-service checks skip, browser evidence captured |
+| 8 | Independent acceptance and visual verification | QA | done-with-limitations | 8 backend tests pass, 4 local-service checks skip, browser evidence captured |
 | 9 | Setup, CI, deployment and rollback preparation | architect/devops + manager | done-with-limitations | Compose/env/PowerShell docs added; Docker runtime unavailable |
 | 10 | Official rules, pitch and fallback demo | strategist | pending | 1; submission checklist |
 | 11 | Deploy and rehearse | manager | blocked | 7–10; explicit deployment approval |
