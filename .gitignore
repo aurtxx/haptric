@@ -1,0 +1,26 @@
+# Credentials and local settings
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.aws/
+# Local output
+node_modules/
+dist/
+build/
+coverage/
+.cache/
+.next/
+.vercel/
+__pycache__/
+.venv/
+*.sqlite3
+*.tsbuildinfo
+*.log
+.DS_Store
+Thumbs.db
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

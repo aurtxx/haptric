@@ -1,0 +1,44 @@
+# Project-local configuration. Keep provider credentials/config in ~/.codex/config.toml.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+
+[agents.architect]
+description = "System architect: requirements, architecture, interfaces, data models, integration decisions."
+config_file = "agents/architect.toml"
+
+[agents.frontend]
+description = "Frontend engineer: accessible responsive UI, state management, integration with APIs."
+config_file = "agents/frontend.toml"
+
+[agents.design_director]
+description = "Design systems director: visual identity, typography, color, layout, responsive rules and design QA coordination."
+config_file = "agents/design_director.toml"
+
+[agents.browser_research]
+description = "Browser research specialist: visible user-assisted authenticated workflows, screenshots, evidence and safe feature discovery."
+config_file = "agents/browser_research.toml"
+
+[agents.backend]
+description = "Backend engineer: APIs, data persistence, auth, validation and tests."
+config_file = "agents/backend.toml"
+
+[agents.qa]
+description = "QA engineer: test strategy, regression checks, build verification and reproducible bugs."
+config_file = "agents/qa.toml"
+
+[agents.security]
+description = "Security reviewer: secrets, input validation, auth boundaries, dependency risks."
+config_file = "agents/security.toml"
+
+[agents.devops]
+description = "DevOps engineer: reproducible setup, CI, deployment and rollback planning."
+config_file = "agents/devops.toml"
+
+[agents.strategist]
+description = "Hackathon strategist: official rules, judging rubric, demo narrative, pitch and submission checklist."
+config_file = "agents/strategist.toml"
+
+[agents.ai]
+description = "AI engineer: LLM features, prompts, evaluations, latency and fallback behavior."
+config_file = "agents/ai.toml"

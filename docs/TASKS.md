@@ -1,0 +1,32 @@
+# Task board
+Manager alone edits this board. Use the assignment contract in AGENT_WORKFLOW.md.
+
+| ID | Task | Owner | Status | Dependencies / acceptance |
+|---|---|---|---|---|
+| W1 | Workflow safeguards | manager | done | AGENT_WORKFLOW.md, ignore rules, reviewer instructions |
+| W2 | Independent workflow review | security | done | No blocking findings; effective sandbox remains unverified |
+| W3 | Runtime config and reviewer isolation validation | manager | done-with-limitations | Strict config and role parsing checked; parent read-only launch verified; custom-agent sandbox override is not an enforcement mechanism |
+| W4 | Browser research capability | manager | done-with-limitations | `playwright-cli 0.1.23` installed; headed persistent example.com session, snapshot and screenshot passed; manual-login workflow documented; no authenticated product research performed |
+| S1 | Security scope, recovery matrix, evidence and local mock | manager | done-with-limitations | Draft scope is blocked pending written vendor authorization; loopback mock self-test required before active testing |
+| S2 | EZExam password-recovery assessment | security + browser_research | blocked | User-reported authorization remains unverified; window/source IP/limits missing. User initiated one OTP request in browser; no code submitted, no password reset, no brute force. Live security testing remains blocked. |
+| S3 | Local OTP rate-limit assessment | security | done-with-limitations | `docs/OTP_RATE_LIMIT_ASSESSMENT.md`; synthetic loopback mock only. Lockout, expiry, replay, session binding, generic errors and reissue behavior assessed; no EZExam conclusions. |
+| S4 | EZExam live evidence report | security + browser_research | done-with-limitations | `docs/EZEXAM_LIVE_SECURITY_REPORT.md`; records one user-reported OTP request and visible UI response. HTTP status and click time unavailable; OTP properties NOT VERIFIED; no automated guessing or reset; report not sent. |
+| S5 | Authorized product research and architecture brief | manager + strategist + architect | done-with-limitations | Read-only inventory and independent LAN/WAN recommendations documented in competitor, feature, role, UX, architecture, roadmap and open-question docs. No app code; unobserved modules remain explicitly marked. |
+| S6 | Disposable exam/student lifecycle research | manager + browser_research + QA | blocked-persistence-mismatch | Student persisted and reopened successfully. The intended three-question exam was not verified: the only reopened same-name record has 15 questions, different markings/content, a past schedule and JEE-Main tag. No new schedule/share/start/submit/delete action will occur until the user resolves record identity and correction authority. |
+| 1 | Complete product and official event requirements | manager | in-progress | Product brief and measurable vertical-slice acceptance criteria recorded; official event details remain unknown |
+| 2 | Minimal architecture and proposed contracts | architect + manager | done-with-limitations | `docs/ARCHITECTURE_PROPOSAL.md` integrated; PostgreSQL/Docker runtime pending because Docker is unavailable |
+| 2D | Design system and visual specification | design_director + frontend | done-with-limitations | Original Northstar tokens implemented; desktop/tablet/mobile headed screenshots captured |
+| 2B | Authorized product workflow research | browser_research | blocked | User-provided URL, objective, authorization and explicit login confirmation |
+| 3 | Frontend journey and tests | frontend + manager | done-with-limitations | Vite app, role previews, exam runner and results verified; API adapter integration remains |
+| 4 | Backend journey and tests | backend + manager | done-with-limitations | Django/DRF foundation, migrations, schedule, tenant checks, scoring and sync tests pass locally |
+| 5 | AI integration/evaluations if needed | ai | pending | 2; product need established |
+| 6 | Integrate slice and run browser screenshot review | manager | done-with-limitations | Local browser walkthrough and desktop/tablet/mobile screenshots pass; backend/frontend live integration remains |
+| 7 | Independent security review | security + QA | in-progress | Contract checks pass; auth throttling, production headers and full E2E review remain |
+| 8 | Independent acceptance and visual verification | QA | done-with-limitations | 7 backend tests pass, 4 local-service checks skip, browser evidence captured |
+| 9 | Setup, CI, deployment and rollback preparation | architect/devops + manager | done-with-limitations | Compose/env/PowerShell docs added; Docker runtime unavailable |
+| 10 | Official rules, pitch and fallback demo | strategist | pending | 1; submission checklist |
+| 11 | Deploy and rehearse | manager | blocked | 7–10; explicit deployment approval |
+
+Verification: TOML and role-path checks passed; strict Codex exec loaded the project config with the official OpenAI provider and read-only sandbox; multi_agent is enabled. No application manifest exists, so lint/typecheck/tests/build are unavailable. No commit or deployment performed. Ignore checks exclude .env/.env.local/node_modules and preserve .env.example. Child concurrency and custom-agent reviewer isolation remain unverified.
+
+Browser verification: `playwright-cli --version` returned 0.1.23. `playwright-cli install --skills=agents` succeeded. A named headed persistent `research` session opened `https://example.com`, produced `.playwright-cli/example-headed.png` and a snapshot, evaluated the title, and closed. No login, cookies, storage state, or product research were performed.
