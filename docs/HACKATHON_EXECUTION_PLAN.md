@@ -1,4 +1,4 @@
-# OpenExam Hackathon Execution Plan
+# Haptric Hackathon Execution Plan
 
 This plan follows the reality audit in `docs/HACKATHON_REALITY_AUDIT.md`. It is dependency ordered and intentionally biased toward one reliable, demo-ready vertical slice before secondary modules or visual expansion.
 

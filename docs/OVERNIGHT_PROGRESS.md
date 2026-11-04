@@ -6,7 +6,7 @@
 - Added a Django/DRF backend with tenant-scoped organizations, roles, students, subjects, questions, exams, sections, assignments, attempts, answers, results, audit events and sync outbox.
 - Added CSRF-aware session endpoints, health checks, schedule windows, student exam filtering, answer-key redaction, exam-membership checks and idempotent submission/scoring.
 - Added bounded sync pull/push endpoints with tenant conflict protection.
-- Added the original Northstar Exams React/Vite interface with admin/student role previews, question authoring, assignment-oriented views, exam runner, local-first answer saves, timer display and results.
+- Added the original Haptric React/Vite interface with admin/student role previews, question authoring, assignment-oriented views, exam runner, local-first answer saves, timer display and results.
 - Added backend contract/security tests, frontend contract tests, and responsive design evidence at desktop, tablet and mobile viewports.
 - Added LAN/cloud Compose configuration, environment examples and PowerShell setup documentation.
 

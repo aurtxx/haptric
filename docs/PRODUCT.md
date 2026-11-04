@@ -1,5 +1,5 @@
 # Product brief
-Project name: OpenExam (working title)
+Project name: Haptric
 Problem: Schools and coaching communities need a simple examination workflow that keeps working on a local LAN when internet access is unreliable, while still synchronizing safely to a cloud deployment when available.
 Target user: School, coaching-institute and tuition-center administrators, teachers, invigilators and students.
 One-sentence solution: An open-source, tenant-safe exam platform with a complete author → assign → attempt → score workflow that runs on a LAN and synchronizes through explicit, idempotent boundaries to the cloud.

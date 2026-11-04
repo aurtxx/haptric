@@ -1,4 +1,4 @@
-# OpenExam Hackathon Reality Audit
+# Haptric Hackathon Reality Audit
 
 **Audit date:** 2026-11-04
 **Scope:** source, tests, local HTTP smoke checks, and repository configuration only
@@ -6,7 +6,7 @@
 
 ## Executive finding
 
-OpenExam has a useful Django/DRF domain foundation and a polished local React demonstration, but it is not yet an integrated full-stack product. The frontend imports `frontend/src/api/mockApi.ts` directly; it does not call the Django API or perform real authentication. The backend implements many lifecycle primitives and has passing API tests, but several server guarantees required for a production exam flow are incomplete. The admin-to-student journey therefore stops at the frontend/backend boundary.
+Haptric's early state had a useful Django/DRF domain foundation and a polished local React demonstration, but it was not yet an integrated full-stack product. The frontend imported `frontend/src/api/mockApi.ts` directly; it did not call the Django API or perform real authentication. The backend implemented many lifecycle primitives and had passing API tests, but several server guarantees required for a production exam flow were incomplete. The admin-to-student journey therefore stopped at the frontend/backend boundary. This is a historical baseline; later P0/P1 completion reports record the verified implementation.
 
 The highest-value next step is a narrow, real API-backed vertical slice: session login, staff-created draft exam with three questions, assignment, student login, attempt start, answer saves, server-enforced expiry/submission, scoring, and result views. Visual expansion and secondary modules should wait until that slice is demonstrated end to end.
 
