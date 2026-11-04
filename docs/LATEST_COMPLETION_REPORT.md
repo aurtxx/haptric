@@ -13,7 +13,7 @@ feat/p1-hybrid-sync-mvp
 505eef1555f674947e92d1c05049088493af91d0
 
 ## Implementation Commit
-PENDING
+6011a5d3115c59f4846de235cd907d36394da6ba
 
 ## Completion Report Commit
 PENDING
@@ -95,6 +95,7 @@ without expanding into browser-offline or multi-master synchronization.
 
 ## GitHub Verification
 
-- pushed branch: pending implementation delivery
-- remote SHA verification: pending
-- canonical commit URL: pending
+- pushed branch: `feat/p1-hybrid-sync-mvp`
+- implementation SHA visible remotely: `6011a5d3115c59f4846de235cd907d36394da6ba`
+- implementation URL: https://github.com/aurtxx/haptric/commit/6011a5d3115c59f4846de235cd907d36394da6ba
+- completion-report SHA: PENDING until this documentation commit is created
