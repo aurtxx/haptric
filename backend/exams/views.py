@@ -1,6 +1,7 @@
 import uuid
 import json
 import os
+import hmac
 from datetime import timedelta
 from django.contrib.auth import authenticate, login, logout
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -368,14 +369,14 @@ def sync_pull(request):
 def sync_push(request):
     expected_token = os.getenv("HAPTRIC_SYNC_TOKEN", "")
     supplied_token = request.headers.get("X-Haptric-Sync-Token", "")
-    if not expected_token or supplied_token != expected_token:
+    if not expected_token or not supplied_token or not hmac.compare_digest(supplied_token, expected_token):
         return JsonResponse({"detail": "Node authentication required."}, status=401)
     try:
         payload = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"detail": "Invalid JSON."}, status=400)
     events = payload.get("events")
-    if not isinstance(events, list) or len(events) > 100:
+    if not isinstance(events, list) or len(events) > 100 or len(request.body or b"") > 1_000_000:
         return JsonResponse({"detail": "events must be a list of at most 100 items."}, status=400)
     organization_id = payload.get("organization_id")
     expected_organization_id = os.getenv("HAPTRIC_SYNC_ORGANIZATION_ID", "")

@@ -6,12 +6,16 @@ credentials or private records.
 
 ## Before the demo
 
-1. Start Django and the Vite frontend using the commands in `README.md`.
-2. Create a disposable local organization, staff user, student (`HACK-001`),
-   published three-question exam, and assignment using the documented API or
-   local fixture helpers. Do not commit the temporary password.
-3. Open two headed browser contexts so staff and student sessions remain
-   isolated.
+1. Set a disposable password only in the current PowerShell session:
+   `$env:HAPTRIC_DEMO_PASSWORD = 'use-a-local-only-value'`.
+2. Run `tools/demo/setup-hybrid-demo.ps1`, then
+   `tools/demo/seed-hybrid-demo.ps1`.
+3. Set `$env:HAPTRIC_SYNC_TOKEN` to a local-only value and run
+   `tools/demo/start-lan.ps1` and `tools/demo/start-cloud.ps1` in separate
+   terminals. Start the LAN frontend on port 5173 and the Cloud frontend on
+   port 5174 with `VITE_API_BASE_URL` pointed at the matching API.
+4. Run `tools/demo/hybrid-demo-check.ps1` before opening two headed browser
+   contexts. Credentials are never stored in this document or repository.
 
 ## Three-to-five minute flow
 
@@ -41,6 +45,13 @@ idempotent and no duplicate attempt, answers, or result are created.
 
 This is upstream outage tolerance, not a browser-offline/PWA claim. The
 student device continues to reach the local LAN Django server throughout.
+
+The outage moment is repeatable: stop only the Cloud process, complete the
+student attempt on LAN, run `tools/demo/sync-lan.ps1` once to show retained
+failure, restart Cloud, run it again, and refresh the Cloud staff Results page.
+Run it a third time to show replay does not duplicate records. Use
+`tools/demo/reset-hybrid-demo.ps1` only when the disposable demo data should
+be removed.
 
 ## Proof points
 

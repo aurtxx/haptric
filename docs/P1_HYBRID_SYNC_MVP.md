@@ -72,3 +72,6 @@ automatic master-data synchronization, multi-master merge, or production key
 rotation in this milestone. PostgreSQL remains the production target; SQLite
 is used only for the isolated local two-node test when Docker/PostgreSQL is
 unavailable.
+
+P1.3 hardening, CORS/CSRF topology and the reproducible PowerShell workflow
+are documented in `docs/P1_HYBRID_HARDENING.md` and `tools/demo/`.

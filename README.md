@@ -30,6 +30,29 @@ uses its own node ID/role and the same organization reference data. Run
 `python backend/manage.py sync_upstream` from the LAN process environment to
 deliver pending attempt events; the browser never holds the sync token.
 
+## Hybrid demo
+
+The reproducible PowerShell workflow in `tools/demo/` uses two disposable
+SQLite databases: LAN on port 8000 and Cloud on port 8001. “Offline” means
+only the upstream Cloud node is unavailable; the student browser continues to
+reach LAN Django. Run `setup-hybrid-demo.ps1` once, start both nodes, stop the
+Cloud terminal process to simulate the outage, complete the synthetic exam on
+LAN, then run `sync-lan.ps1` after Cloud returns. `hybrid-demo-check.ps1` reports
+node health, database separation, aligned reference IDs, and outbox state.
+`reset-hybrid-demo.ps1` deletes only the known `.demo-hybrid` directory.
+
+Cloud frontend example:
+
+```powershell
+$env:VITE_API_BASE_URL = 'http://127.0.0.1:8001/api/v1'
+Set-Location frontend
+npm run dev -- --host 127.0.0.1 --port 5174
+```
+
+The Cloud process must allow-list `http://127.0.0.1:5174` in both
+`CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS`; credentialed wildcard CORS
+is not supported.
+
 ## Docker Compose
 
 Docker is optional and must be installed separately. Copy `infra/.env.example` to `infra/.env`, replace the development-only placeholders, then run:

@@ -1,6 +1,8 @@
+import json
 import os
 import uuid
 from datetime import timedelta
+from urllib.error import URLError
 from unittest.mock import patch
 
 import pytest
@@ -112,3 +114,87 @@ def test_sync_command_retains_events_when_upstream_is_unavailable(sync_fixture):
     event = SyncOutbox.objects.get(idempotency_key="pending-sync-event")
     assert event.delivery_status == SyncOutbox.DeliveryStatus.FAILED
     assert event.attempts == 1
+
+
+@pytest.mark.django_db
+def test_sync_command_batches_each_organization_independently(sync_fixture):
+    other = Organization.objects.create(name="Second School", slug="second-school")
+    first_event = SyncOutbox.objects.create(organization=sync_fixture["org"], event_type="attempt.started", entity_type="attempt", entity_id=str(uuid.uuid4()), idempotency_key="org-one-event", payload={"attempt_id": str(uuid.uuid4())}, origin_node="lan-node")
+    second_event = SyncOutbox.objects.create(organization=other, event_type="attempt.started", entity_type="attempt", entity_id=str(uuid.uuid4()), idempotency_key="org-two-event", payload={"attempt_id": str(uuid.uuid4())}, origin_node="lan-node")
+    requests = []
+
+    class FakeResponse:
+        def __init__(self, body):
+            self.body = body
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return self.body
+
+    def fake_urlopen(request, timeout=5):
+        body = json.loads(request.data.decode())
+        requests.append(body)
+        return FakeResponse(json.dumps({"accepted_event_ids": [event["event_id"] for event in body["events"]], "conflicts": []}).encode())
+
+    with patch.dict(os.environ, {"HAPTRIC_SYNC_URL": "http://cloud.test/api/v1/sync/push/", "HAPTRIC_SYNC_TOKEN": "test-sync-token"}), patch("exams.management.commands.sync_upstream.urlopen", side_effect=fake_urlopen):
+        call_command("sync_upstream")
+
+    assert len(requests) == 2
+    assert {request["organization_id"] for request in requests} == {str(sync_fixture["org"].id), str(other.id)}
+    assert all(len(request["events"]) == 1 for request in requests)
+    assert SyncOutbox.objects.get(id=first_event.id).delivery_status == SyncOutbox.DeliveryStatus.DELIVERED
+    assert SyncOutbox.objects.get(id=second_event.id).delivery_status == SyncOutbox.DeliveryStatus.DELIVERED
+
+
+@pytest.mark.django_db
+def test_sync_failure_for_one_organization_does_not_block_another(sync_fixture):
+    other = Organization.objects.create(name="Third School", slug="third-school")
+    first_event = SyncOutbox.objects.create(organization=sync_fixture["org"], event_type="attempt.started", entity_type="attempt", entity_id=str(uuid.uuid4()), idempotency_key="org-fail-event", payload={"attempt_id": str(uuid.uuid4())}, origin_node="lan-node")
+    second_event = SyncOutbox.objects.create(organization=other, event_type="attempt.started", entity_type="attempt", entity_id=str(uuid.uuid4()), idempotency_key="org-success-event", payload={"attempt_id": str(uuid.uuid4())}, origin_node="lan-node")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return json.dumps({"accepted_event_ids": [str(second_event.id)], "conflicts": []}).encode()
+
+    def fake_urlopen(request, timeout=5):
+        body = json.loads(request.data.decode())
+        if body["organization_id"] == str(sync_fixture["org"].id):
+            raise URLError("simulated outage")
+        return FakeResponse()
+
+    with patch.dict(os.environ, {"HAPTRIC_SYNC_URL": "http://cloud.test/api/v1/sync/push/", "HAPTRIC_SYNC_TOKEN": "test-sync-token"}), patch("exams.management.commands.sync_upstream.urlopen", side_effect=fake_urlopen):
+        call_command("sync_upstream")
+
+    assert SyncOutbox.objects.get(id=first_event.id).delivery_status == SyncOutbox.DeliveryStatus.FAILED
+    assert SyncOutbox.objects.get(id=second_event.id).delivery_status == SyncOutbox.DeliveryStatus.DELIVERED
+
+
+@pytest.mark.django_db
+def test_sync_rejects_future_schema_and_post_submit_mutation(sync_fixture):
+    client = APIClient()
+    with patch.dict(os.environ, {"HAPTRIC_SYNC_TOKEN": "test-sync-token", "HAPTRIC_SYNC_ORGANIZATION_ID": str(sync_fixture["org"].id), "HAPTRIC_NODE_ID": "cloud-node"}):
+        future = client.post("/api/v1/sync/push/", {"organization_id": str(sync_fixture["org"].id), "events": [{"schema_version": 2, "event_type": "attempt.started"}]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert future.status_code == 400
+
+        attempt_id = str(uuid.uuid4())
+        now = timezone.now()
+        started = {
+            "event_id": str(uuid.uuid4()), "event_type": "attempt.started", "organization_id": str(sync_fixture["org"].id), "origin_node": "lan-node", "aggregate_type": "attempt", "aggregate_id": attempt_id, "occurred_at": now.isoformat(), "schema_version": 1, "idempotency_key": f"start:{attempt_id}",
+            "payload": {"attempt_id": attempt_id, "exam_id": str(sync_fixture["exam"].id), "student_id": str(sync_fixture["student"].id), "started_at": (now - timedelta(minutes=1)).isoformat(), "deadline_at": (now + timedelta(minutes=9)).isoformat()},
+        }
+        submitted = {
+            **started,
+            "event_id": str(uuid.uuid4()), "event_type": "attempt.submitted", "idempotency_key": f"submit:{attempt_id}",
+            "payload": {**started["payload"], "submitted_at": now.isoformat(), "answers": [{"question_id": str(sync_fixture["question"].id), "value": "A"}], "score": "1.00", "correct_count": 1, "incorrect_count": 0, "unanswered_count": 0},
+        }
+        assert client.post("/api/v1/sync/push/", {"organization_id": str(sync_fixture["org"].id), "events": [started, submitted]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token").status_code == 200
+        late_answer = {**submitted, "event_id": str(uuid.uuid4()), "event_type": "answer.saved", "idempotency_key": f"late:{attempt_id}", "payload": {**started["payload"], "question_id": str(sync_fixture["question"].id), "value": "B"}}
+        late = client.post("/api/v1/sync/push/", {"organization_id": str(sync_fixture["org"].id), "events": [late_answer]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert late.status_code == 200
+        assert late.json()["conflicts"] == [late_answer["event_id"]]

@@ -68,17 +68,28 @@ def apply_sync_event(*, envelope, organization):
     if event_type == "attempt.started":
         exam = Exam.objects.get(id=payload["exam_id"], organization=organization)
         student = Student.objects.get(id=payload["student_id"], organization=organization)
-        Attempt.objects.get_or_create(
+        started_at = _parse_datetime(payload.get("started_at"))
+        deadline_at = _parse_datetime(payload.get("deadline_at"))
+        if not started_at or not deadline_at:
+            raise ValueError("missing_attempt_timestamps")
+        attempt, created = Attempt.objects.get_or_create(
             id=attempt_id,
             defaults={
                 "exam": exam,
                 "student": student,
                 "status": Attempt.Status.IN_PROGRESS,
-                "started_at": _parse_datetime(payload.get("started_at")) or timezone.now(),
-                "deadline_at": _parse_datetime(payload.get("deadline_at")) or timezone.now(),
+                "started_at": started_at,
+                "deadline_at": deadline_at,
                 "idempotency_key": f"synced:{attempt_id}",
             },
         )
+        if not created and (
+            str(attempt.exam_id) != str(exam.id)
+            or str(attempt.student_id) != str(student.id)
+            or attempt.started_at != started_at
+            or attempt.deadline_at != deadline_at
+        ):
+            raise RuntimeError("event_conflict")
     elif event_type == "answer.saved":
         attempt = Attempt.objects.get(id=attempt_id, exam__organization=organization)
         question = ExamQuestion.objects.get(question_id=payload["question_id"], section__exam=attempt.exam).question
@@ -88,7 +99,7 @@ def apply_sync_event(*, envelope, organization):
             raise ValueError(str(exc)) from exc
         if attempt.status == Attempt.Status.SUBMITTED:
             existing_answer = Answer.objects.filter(attempt=attempt, question=question).first()
-            if existing_answer and existing_answer.value != payload.get("value"):
+            if not existing_answer or existing_answer.value != payload.get("value"):
                 raise RuntimeError("event_conflict")
         else:
             Answer.objects.update_or_create(attempt=attempt, question=question, defaults={"value": payload.get("value")})

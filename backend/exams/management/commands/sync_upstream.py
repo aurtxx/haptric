@@ -18,13 +18,31 @@ class Command(BaseCommand):
         if not url or not token:
             self.stderr.write("HAPTRIC_SYNC_URL and HAPTRIC_SYNC_TOKEN are required")
             return
-        org_id = SyncOutbox.objects.values_list("organization_id", flat=True).first()
-        if not org_id:
-            self.stdout.write("No organization events pending")
+        configured = os.getenv("HAPTRIC_SYNC_ORGANIZATION_ID", "").strip()
+        configured_many = [item.strip() for item in os.getenv("HAPTRIC_SYNC_ORGANIZATION_IDS", "").split(",") if item.strip()]
+        allowed = set(configured_many or ([configured] if configured else []))
+        organizations = SyncOutbox.objects.filter(
+            delivery_status__in=[SyncOutbox.DeliveryStatus.PENDING, SyncOutbox.DeliveryStatus.FAILED],
+            available_at__lte=timezone.now(),
+        ).values_list("organization_id", flat=True).distinct()
+        if allowed:
+            organizations = [org_id for org_id in organizations if str(org_id) in allowed]
+        else:
+            organizations = list(organizations)
+        if not organizations:
+            self.stdout.write("No pending events")
             return
-        qs = SyncOutbox.objects.filter(organization_id=org_id, delivery_status__in=[SyncOutbox.DeliveryStatus.PENDING, SyncOutbox.DeliveryStatus.FAILED]).order_by("created_at")[:100]
+        for org_id in organizations:
+            self._sync_organization(url, token, org_id)
+
+    def _sync_organization(self, url, token, org_id):
+        queryset = SyncOutbox.objects.filter(
+            organization_id=org_id,
+            delivery_status__in=[SyncOutbox.DeliveryStatus.PENDING, SyncOutbox.DeliveryStatus.FAILED],
+            available_at__lte=timezone.now(),
+        ).order_by("created_at")[:100]
         events = []
-        for event in qs:
+        for event in queryset:
             event.attempts += 1
             event.save(update_fields=["attempts"])
             events.append({
@@ -40,7 +58,6 @@ class Command(BaseCommand):
                 "payload": event.payload,
             })
         if not events:
-            self.stdout.write("No pending events")
             return
         body = json.dumps({"organization_id": str(org_id), "events": events}).encode("utf-8")
         request = Request(url, data=body, headers={"Content-Type": "application/json", "X-Haptric-Sync-Token": token}, method="POST")
@@ -48,15 +65,20 @@ class Command(BaseCommand):
             with urlopen(request, timeout=5) as response:
                 result = json.loads(response.read().decode("utf-8"))
         except (URLError, HTTPError, TimeoutError, OSError) as exc:
-            SyncOutbox.objects.filter(id__in=[event["event_id"] for event in events]).update(delivery_status=SyncOutbox.DeliveryStatus.FAILED, last_error=str(exc)[:500])
-            self.stderr.write(f"Upstream unavailable; retained {len(events)} events: {exc}")
+            SyncOutbox.objects.filter(id__in=[event["event_id"] for event in events]).update(
+                delivery_status=SyncOutbox.DeliveryStatus.FAILED,
+                last_error=str(exc)[:500],
+                available_at=timezone.now(),
+            )
+            self.stderr.write(f"organization={org_id} upstream unavailable; retained {len(events)} events")
             return
         accepted = set(result.get("accepted_event_ids", []))
         conflicts = set(result.get("conflicts", []))
+        now = timezone.now()
         for event in events:
             event_id = event["event_id"]
             if event_id in conflicts:
-                SyncOutbox.objects.filter(id=event_id).update(delivery_status=SyncOutbox.DeliveryStatus.CONFLICT, last_error="upstream conflict")
+                SyncOutbox.objects.filter(id=event_id).update(delivery_status=SyncOutbox.DeliveryStatus.CONFLICT, last_error="upstream conflict", available_at=now)
             elif event_id in accepted:
-                SyncOutbox.objects.filter(id=event_id).update(delivery_status=SyncOutbox.DeliveryStatus.DELIVERED, processed_at=timezone.now(), delivered_at=timezone.now(), last_error="")
-        self.stdout.write(f"Accepted {len(accepted)}; conflicts {len(conflicts)}")
+                SyncOutbox.objects.filter(id=event_id).update(delivery_status=SyncOutbox.DeliveryStatus.DELIVERED, processed_at=now, delivered_at=now, last_error="", available_at=now)
+        self.stdout.write(f"organization={org_id} accepted={len(accepted)} conflicts={len(conflicts)}")
