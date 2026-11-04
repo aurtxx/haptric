@@ -26,7 +26,10 @@ Manager alone edits this board. Use the assignment contract in AGENT_WORKFLOW.md
 | 9 | Setup, CI, deployment and rollback preparation | architect/devops + manager | done-with-limitations | Compose/env/PowerShell docs added; Docker runtime unavailable |
 | 10 | Official rules, pitch and fallback demo | strategist | pending | 1; submission checklist |
 | 11 | Deploy and rehearse | manager | blocked | 7–10; explicit deployment approval |
+| G1 | Canonical GitHub collaboration | manager | done | `origin` points to `aurtxx/haptric`; collaboration rules and ignore safeguards committed and pushed; remote SHA verified |
 
-Verification: TOML and role-path checks passed; strict Codex exec loaded the project config with the official OpenAI provider and read-only sandbox; multi_agent is enabled. No application manifest exists, so lint/typecheck/tests/build are unavailable. No commit or deployment performed. Ignore checks exclude .env/.env.local/node_modules and preserve .env.example. Child concurrency and custom-agent reviewer isolation remain unverified.
+Verification: TOML and role-path checks passed; strict Codex exec loaded the project config with the official OpenAI provider and read-only sandbox; multi_agent is enabled. Backend `manage.py check` passed; backend/QA tests report 8 passed and 4 skipped; frontend lint, tests and production build passed. Ignore checks exclude secrets, local databases, generated artifacts and `.env` files while preserving `.env.example`. Docker remains unavailable. Child concurrency and custom-agent reviewer isolation remain unverified.
+
+GitHub verification: canonical remote is `https://github.com/aurtxx/haptric.git`; empty remote was bootstrapped safely on `main`. Commit `8c6c91979085d4f24969b18e9ef6bf22afc86279` is visible at `https://github.com/aurtxx/haptric/commit/8c6c91979085d4f24969b18e9ef6bf22afc86279` and `main` tracks `origin/main`.
 
 Browser verification: `playwright-cli --version` returned 0.1.23. `playwright-cli install --skills=agents` succeeded. A named headed persistent `research` session opened `https://example.com`, produced `.playwright-cli/example-headed.png` and a snapshot, evaluated the title, and closed. No login, cookies, storage state, or product research were performed.
