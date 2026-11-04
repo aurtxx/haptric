@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { httpApi, HttpApiError } from './api'
 import { mockApi } from './api/mockApi'
-import type { Attempt, Exam, Question, Role } from './types'
+import type { ApiError, Attempt, AuthenticatedUser, Exam, Question, Role } from './types'
 
 type Screen = 'overview' | 'studio' | 'students' | 'exam' | 'results'
 
@@ -9,18 +10,62 @@ const navFor = (role: Role): { id: Screen; label: string; hint: string }[] => ro
   : [{ id: 'overview', label: 'My desk', hint: 'Assigned learning' }, { id: 'exam', label: 'Practice exam', hint: 'One active attempt' }, { id: 'results', label: 'Results', hint: 'Feedback and marks' }]
 
 function App() {
-  const [role, setRole] = useState<Role | null>(null)
+  const [user, setUser] = useState<AuthenticatedUser | null>(null)
+  const [sessionChecking, setSessionChecking] = useState(true)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authError, setAuthError] = useState<ApiError | null>(null)
   const [screen, setScreen] = useState<Screen>('overview')
   const [exam, setExam] = useState<Exam | null>(null)
   const [attempt, setAttempt] = useState<Attempt | undefined>()
   const [message, setMessage] = useState('')
 
-  useEffect(() => { mockApi.getExam().then(setExam) }, [])
+  const role: Role | null = user ? user.role === 'student' ? 'student' : 'admin' : null
 
-  const signIn = (nextRole: Role) => { setRole(nextRole); setScreen('overview'); setMessage('') }
-  const signOut = () => { setRole(null); setAttempt(undefined); setScreen('overview') }
+  useEffect(() => {
+    httpApi.getCurrentUser()
+      .then((currentUser) => { setUser(currentUser); setAuthError(null) })
+      .catch((error: unknown) => {
+        const apiError = error instanceof HttpApiError ? error : { kind: 'network' as const, message: 'The server is unavailable right now. Please try again.' }
+        if (apiError.kind !== 'authentication') setAuthError(apiError)
+      })
+      .finally(() => setSessionChecking(false))
+  }, [])
 
-  if (!role) return <Login onSelect={signIn} />
+  useEffect(() => { if (user) mockApi.getExam().then(setExam) }, [user])
+
+  const signIn = async (username: string, password: string) => {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      await httpApi.login(username, password)
+      const currentUser = await httpApi.getCurrentUser()
+      setUser(currentUser)
+      setScreen('overview')
+      setMessage('')
+    } catch (error: unknown) {
+      setAuthError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  const signOut = async () => {
+    setAuthBusy(true)
+    setAuthError(null)
+    try {
+      await httpApi.logout()
+      setUser(null)
+      setAttempt(undefined)
+      setScreen('overview')
+    } catch (error: unknown) {
+      setAuthError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  if (sessionChecking) return <main className="loading-screen" aria-live="polite">Checking session…</main>
+  if (!user || !role) return <Login onSubmit={signIn} busy={authBusy} error={authError} />
   if (!exam) return <main className="loading-screen" aria-live="polite">Loading your workspace…</main>
 
   const startExam = async () => { setAttempt(await mockApi.createAttempt()); setScreen('exam'); setMessage('The attempt is local-first and will sync when a server is available.') }
@@ -29,12 +74,12 @@ function App() {
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="brand-mark"><span className="brand-dot" /> northstar<span className="brand-suffix">/exams</span></div>
-      <div className="workspace-note"><span className="eyebrow">WORKSPACE</span><strong>Harbor Learning Co.</strong><span className="muted">{role === 'admin' ? 'Exam administrator' : 'Student desk'}</span></div>
+      <div className="workspace-note"><span className="eyebrow">WORKSPACE</span><strong>{user.username}</strong><span className="muted">{user.role} · {user.organization ? `Org ${user.organization.slice(0, 8)}` : 'Unassigned'}</span></div>
       <nav>{navFor(role).map((item) => <button className={`nav-item ${screen === item.id ? 'active' : ''}`} key={item.id} onClick={() => setScreen(item.id)}><span>{item.label}</span><small>{item.hint}</small></button>)}</nav>
-      <div className="sidebar-footer"><span className="status-dot" /> LAN node ready <button className="text-button" onClick={signOut}>Sign out</button></div>
+      <div className="sidebar-footer"><span className="status-dot" /> LAN node ready <button className="text-button" onClick={signOut} disabled={authBusy}>{authBusy ? 'Signing out…' : 'Sign out'}</button></div>
     </aside>
     <main className="content">
-      <header className="topbar"><div><span className="eyebrow">{role === 'admin' ? 'ADMIN CONSOLE' : 'STUDENT DESK'}</span><h1>{screen === 'studio' ? 'Build a clear assessment.' : screen === 'exam' ? 'Take your time.' : screen === 'results' ? 'See what stuck.' : 'Good morning, Maya.'}</h1></div><div className="topbar-meta"><span className="sync-state">● Saved locally</span><button className="avatar" aria-label="Open profile">MS</button></div></header>
+      <header className="topbar"><div><span className="eyebrow">{role === 'admin' ? 'ADMIN CONSOLE' : 'STUDENT DESK'}</span><h1>{screen === 'studio' ? 'Build a clear assessment.' : screen === 'exam' ? 'Take your time.' : screen === 'results' ? 'See what stuck.' : `Welcome, ${user.username}.`}</h1></div><div className="topbar-meta"><span className="sync-state">● Session active</span><button className="avatar" aria-label={`Signed in as ${user.username}`}>{user.username.slice(0, 2).toUpperCase()}</button></div></header>
       {message && <div className="notice" role="status">{message}<button onClick={() => setMessage('')} aria-label="Dismiss message">×</button></div>}
       {role === 'admin' && screen === 'overview' && <AdminOverview exam={exam} onOpen={() => setScreen('studio')} />}
       {role === 'admin' && screen === 'studio' && <ExamStudio exam={exam} onPublish={(updated) => { setExam(updated); setMessage('Draft saved locally. Publishing remains a deliberate next step.'); }} />}
@@ -46,8 +91,9 @@ function App() {
   </div>
 }
 
-function Login({ onSelect }: { onSelect: (role: Role) => void }) {
-  return <main className="login-page"><section className="login-card"><div className="brand-mark"><span className="brand-dot" /> northstar<span className="brand-suffix">/exams</span></div><p className="eyebrow">OPEN EXAM PLATFORM</p><h1>Make room for better questions.</h1><p className="lede">A calm, resilient exam workspace for classrooms on a LAN or in the cloud.</p><form className="login-fields" onSubmit={(event) => { event.preventDefault(); onSelect('admin') }}><label htmlFor="login-identity">Email or student ID<input id="login-identity" placeholder="you@school.org" autoComplete="username" /></label><label htmlFor="login-password">Password<input id="login-password" type="password" placeholder="••••••••" autoComplete="current-password" /></label><button className="primary-button" type="submit">Enter workspace</button></form><div className="login-divider"><span>demo role</span></div><div className="role-actions"><button type="button" onClick={() => onSelect('admin')}>Admin preview</button><button type="button" onClick={() => onSelect('student')}>Student preview</button></div><small className="muted">No credentials are sent in this prototype. The API boundary is ready for Django session auth.</small></section><aside className="login-aside"><span className="index-number">01</span><p>Local-first by design.</p><p className="muted">Keep an exam running when the internet cannot.</p></aside></main>
+function Login({ onSubmit, busy, error }: { onSubmit: (username: string, password: string) => Promise<void>; busy: boolean; error: ApiError | null }) {
+  const errorMessage = error?.kind === 'authentication' ? 'Invalid credentials. Check your username and password.' : error?.message
+  return <main className="login-page"><section className="login-card"><div className="brand-mark"><span className="brand-dot" /> northstar<span className="brand-suffix">/exams</span></div><p className="eyebrow">OPEN EXAM PLATFORM</p><h1>Make room for better questions.</h1><p className="lede">A calm, resilient exam workspace for classrooms on a LAN or in the cloud.</p>{errorMessage && <div className="notice" role="alert">{errorMessage}</div>}<form className="login-fields" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); const username = String(values.get('username') ?? '').trim(); const password = String(values.get('password') ?? ''); if (!username || !password) return; void onSubmit(username, password).finally(() => form.reset()) }}><label htmlFor="login-identity">Email or student ID<input id="login-identity" name="username" placeholder="you@school.org" autoComplete="username" required disabled={busy} /></label><label htmlFor="login-password">Password<input id="login-password" name="password" type="password" placeholder="••••••••" autoComplete="current-password" required disabled={busy} /></label><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Enter workspace'}</button></form><small className="muted">Your password is sent only to Django over the configured development connection. The session is kept in an HttpOnly browser cookie.</small></section><aside className="login-aside"><span className="index-number">01</span><p>Local-first by design.</p><p className="muted">Keep an exam running when the internet cannot.</p></aside></main>
 }
 
 function AdminOverview({ exam, onOpen }: { exam: Exam; onOpen: () => void }) {

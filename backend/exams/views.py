@@ -24,24 +24,33 @@ def csrf(_request):
 @csrf_protect
 def auth_login(request):
     if request.method != "POST":
-        return JsonResponse({"detail": "Method not allowed."}, status=405)
+        return JsonResponse({"detail": "Method not allowed.", "code": "method_not_allowed"}, status=405)
     try:
         payload = json.loads(request.body or "{}")
     except json.JSONDecodeError:
-        return JsonResponse({"detail": "Invalid JSON."}, status=400)
-    user = authenticate(request, username=payload.get("username", ""), password=payload.get("password", ""))
+        return JsonResponse({"detail": "Invalid JSON.", "code": "invalid_json"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"detail": "A JSON object is required.", "code": "validation_error"}, status=400)
+    username = payload.get("username", "")
+    password = payload.get("password", "")
+    if not isinstance(username, str) or not isinstance(password, str) or not username.strip() or not password:
+        return JsonResponse({"detail": "Username and password are required.", "code": "validation_error"}, status=400)
+    user = authenticate(request, username=username, password=password)
     if not user or not user.is_active or not user.organization_id:
-        return JsonResponse({"detail": "Invalid credentials."}, status=400)
+        return JsonResponse({"detail": "Invalid credentials.", "code": "authentication_failed"}, status=401)
     login(request, user)
     return JsonResponse({"id": str(user.id), "username": user.username, "role": user.role, "organization": str(user.organization_id)})
 
+@csrf_protect
 def auth_logout(request):
+    if request.method != "POST":
+        return JsonResponse({"detail": "Method not allowed.", "code": "method_not_allowed"}, status=405)
     logout(request)
     return JsonResponse({"status": "ok"})
 
 def me(request):
     if not request.user.is_authenticated:
-        return JsonResponse({"detail": "Authentication required."}, status=401)
+        return JsonResponse({"detail": "Authentication required.", "code": "authentication_required"}, status=401)
     return JsonResponse({"id": str(request.user.id), "username": request.user.username, "role": request.user.role, "organization": str(request.user.organization_id)})
 
 class ScopedViewSet(viewsets.ModelViewSet):

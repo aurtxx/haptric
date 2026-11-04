@@ -42,6 +42,8 @@ def test_student_exam_does_not_expose_answer_key(tenant_fixture):
     assert response.status_code == 200
     question_payload = response.json()["sections"][0]["exam_questions"][0]["question"]
     assert "correct_answer" not in question_payload
+    direct_question = client.get(f"/api/v1/questions/{tenant_fixture['question'].id}/")
+    assert direct_question.status_code == 403
 
 
 @pytest.mark.django_db
@@ -94,5 +96,34 @@ def test_csrf_session_login_and_me(tenant_fixture):
     response = client.post("/api/v1/auth/login/", {"username": "admin", "password": "pw"}, format="json", HTTP_X_CSRFTOKEN=token)
     assert response.status_code == 200
     assert response.json()["role"] == "admin"
+    assert response.json()["organization"] == str(tenant_fixture["org"].id)
     me_response = client.get("/api/v1/me/")
     assert me_response.status_code == 200
+    assert me_response.json()["username"] == "admin"
+
+
+@pytest.mark.django_db
+def test_anonymous_me_and_invalid_login_are_safe(tenant_fixture):
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    anonymous = client.get("/api/v1/me/")
+    assert anonymous.status_code == 401
+    assert anonymous.json()["code"] == "authentication_required"
+    invalid = client.post("/api/v1/auth/login/", {"username": "admin", "password": "wrong"}, format="json", HTTP_X_CSRFTOKEN=csrf)
+    assert invalid.status_code == 401
+    assert invalid.json()["code"] == "authentication_failed"
+
+
+@pytest.mark.django_db
+def test_logout_requires_csrf_and_ends_session(tenant_fixture):
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    login_response = client.post("/api/v1/auth/login/", {"username": "admin", "password": "pw"}, format="json", HTTP_X_CSRFTOKEN=csrf)
+    assert login_response.status_code == 200
+    missing_csrf = client.post("/api/v1/auth/logout/", {}, format="json")
+    assert missing_csrf.status_code == 403
+    csrf_after_login = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    logout_response = client.post("/api/v1/auth/logout/", {}, format="json", HTTP_X_CSRFTOKEN=csrf_after_login)
+    assert logout_response.status_code == 200
+    assert client.get("/api/v1/me/").status_code == 401
+    assert client.get("/api/v1/auth/logout/").status_code == 405
