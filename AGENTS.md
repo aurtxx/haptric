@@ -13,3 +13,15 @@ For visual work, follow the design gate in docs/AGENT_WORKFLOW.md: Product Brief
 For authorized product research, delegate to `browser_research` only after the manager records the user-provided URL, objective, authorization scope, and research boundaries. Follow docs/BROWSER_RESEARCH_GUIDE.md. The browser must be headed; the user performs login manually; never request or inspect passwords, OTPs, tokens, cookies, or storage state. Do not research EZExam or competitors until separately authorized.
 
 For security testing, require completed written scope in docs/SECURITY_SCOPE.md before live traffic. Use the recovery matrix, safe evidence rules, stop conditions, and disclosure template. Preparation is limited to the loopback mock; never run live OTP guessing, SQL injection, credential attacks, bulk enumeration, or availability tests before scope confirmation.
+
+## Permanent GitHub collaboration rules
+
+- At the start of every coding task, inspect `git status`, the current branch, and configured remotes before editing.
+- Use `https://github.com/aurtxx/haptric.git` as the canonical repository remote (`origin`).
+- Prefer a task branch and pull request for feature work. Never force-push, rewrite remote history, or overwrite another contributor's branch.
+- After implementation and verification, inspect the staged diff for secrets before committing. Never commit passwords, private keys, OTPs, access tokens, cookies, `.env` files, private records, database dumps, or generated artifacts.
+- Commit only verified changes with a descriptive message, then push the task branch (or the explicitly approved default branch when bootstrapping an empty repository).
+- Report authentication, permission, network, or push failures honestly; never bypass safeguards or embed credentials in remotes.
+- Do not claim code is available on GitHub until a push succeeds and the remote commit is independently visible with `git ls-remote` or an equivalent read-only check.
+- End every task with the commit SHA, branch, push status, canonical GitHub link, commands/tests actually run, and remaining blockers.
+- Keep `docs/TASKS.md` accurate with owners, statuses, dependencies, blockers, and verification evidence.
