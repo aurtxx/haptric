@@ -10,7 +10,7 @@ This file records durable milestone SHAs without rewriting prior Git history.
 | P1.0 Hackathon Experience + Staff Attempt Review | `feat/p1-hackathon-experience` | `b880cc6f31d8b694ecc3accdb07684e1fd504ce3` | `c4fedd9cb916628ceb6daa9b9daf9120fe53dc5e` | `ea577e4daf65136efa2e5ef6213edb87ff2c317c` |
 | P1.1 Staff Attempt Detail + Answer Review | `feat/p1-attempt-review` | `e052e05` | `cf33026` | `5c50ab4` |
 | P1.2 Hybrid LAN + Cloud Sync MVP | `feat/p1-hybrid-sync-mvp` | `6011a5d3115c59f4846de235cd907d36394da6ba` | `4a66c961c6feb9f875ce4e41c70bd9f36314caf0` | `8dc38b4d6954e63cbbad39d56fde4248812b7ff4` |
-| P1.3 Hybrid Hardening + Reproducible Demo | `feat/p1-hybrid-hardening` | pending | pending | pending |
+| P1.3 Hybrid Hardening + Reproducible Demo | `feat/p1-hybrid-hardening` | `79cae9075298840967a98e2e4111911fac36473a` | pending | pending |
 
 The P1.1 final verified head above is the completion-metadata correction commit;
 later documentation-only history updates do not change the implementation or
