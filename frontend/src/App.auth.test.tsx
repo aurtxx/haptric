@@ -79,4 +79,29 @@ describe('App session boundary', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('server is unavailable'))
     expect(screen.getByRole('button', { name: 'Enter workspace' })).toBeTruthy()
   })
+
+  it('loads the assigned exam and restores an in-progress attempt from Django', async () => {
+    const exam = {
+      id: 'exam-1', title: 'Assigned Exam', duration_minutes: 30, available_from: null, available_until: null,
+      status: 'published', published_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z',
+      sections: [{ id: 'section-1', name: 'Core', position: 1, exam_questions: [{ id: 1, position: 1, question: { id: 'question-1', subject: null, question_type: 'single', prompt: 'Which option is correct?', options: ['A', 'B'], version: 1 } }] }],
+    }
+    const attempt = {
+      id: 'attempt-1', exam: 'exam-1', student: 'student-1', status: 'in_progress',
+      started_at: '2026-01-01T00:00:00Z', deadline_at: '2099-01-01T00:30:00Z', submitted_at: null,
+      answers: [{ id: 1, question: 'question-1', value: 'B', saved_at: '2026-01-01T00:01:00Z' }], result: null,
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'student-1', username: 'HACK-001', role: 'student', organization: 'org-1' }))
+      .mockResolvedValueOnce(jsonResponse([exam]))
+      .mockResolvedValueOnce(jsonResponse([attempt]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByText('Question 1 of 1')).toBeTruthy()
+    expect(screen.getByText('Assigned Exam')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'BB' }).className).toContain('selected')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v1/me/', '/api/v1/exams/', '/api/v1/attempts/'])
+  })
 })

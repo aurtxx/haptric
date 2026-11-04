@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { httpApi, HttpApiError } from './api'
-import { mockApi } from './api/mockApi'
-import type { ApiError, ApiExam, ApiStudent, Attempt, AuthenticatedUser, Exam, Question, Role } from './types'
+import type { ApiAttempt, ApiError, ApiExam, ApiResult, ApiStudent, AuthenticatedUser, Role } from './types'
 
 type Screen = 'overview' | 'studio' | 'students' | 'exam' | 'results'
 
@@ -15,12 +14,18 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [authError, setAuthError] = useState<ApiError | null>(null)
   const [screen, setScreen] = useState<Screen>('overview')
-  const [exam, setExam] = useState<Exam | null>(null)
+  const [studentExams, setStudentExams] = useState<ApiExam[]>([])
+  const [studentAttempts, setStudentAttempts] = useState<ApiAttempt[]>([])
+  const [studentLoading, setStudentLoading] = useState(false)
+  const [studentError, setStudentError] = useState<ApiError | null>(null)
+  const [selectedStudentExamId, setSelectedStudentExamId] = useState('')
+  const [attempt, setAttempt] = useState<ApiAttempt | null>(null)
+  const [studentResult, setStudentResult] = useState<ApiResult | null>(null)
+  const [studentBusy, setStudentBusy] = useState(false)
   const [adminExams, setAdminExams] = useState<ApiExam[]>([])
   const [students, setStudents] = useState<ApiStudent[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState<ApiError | null>(null)
-  const [attempt, setAttempt] = useState<Attempt | undefined>()
   const [message, setMessage] = useState('')
 
   const role: Role | null = user ? user.role === 'student' ? 'student' : 'admin' : null
@@ -49,9 +54,32 @@ function App() {
     }
   }
 
+  const refreshStudent = async () => {
+    setStudentLoading(true)
+    setStudentError(null)
+    try {
+      const [nextExams, nextAttempts] = await Promise.all([httpApi.getExams(), httpApi.getAttempts()])
+      setStudentExams(nextExams)
+      setStudentAttempts(nextAttempts)
+      const activeAttempt = nextAttempts.find((item) => item.status === 'in_progress')
+      const submittedAttempt = nextAttempts.find((item) => item.status === 'submitted')
+      const restoredAttempt = activeAttempt ?? submittedAttempt ?? null
+      const restoredExamId = restoredAttempt?.exam ?? nextExams[0]?.id ?? ''
+      setSelectedStudentExamId((current) => current || restoredExamId)
+      setAttempt(restoredAttempt)
+      setStudentResult(restoredAttempt?.result ?? null)
+      if (restoredAttempt?.status === 'in_progress') setScreen('exam')
+      else if (restoredAttempt?.status === 'submitted') setScreen('results')
+    } catch (error: unknown) {
+      setStudentError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
+    } finally {
+      setStudentLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!user) return
-    if (user.role === 'student') mockApi.getExam().then(setExam)
+    if (user.role === 'student') void refreshStudent()
     else void refreshAdmin()
   }, [user])
 
@@ -77,7 +105,10 @@ function App() {
     try {
       await httpApi.logout()
       setUser(null)
-      setAttempt(undefined)
+      setAttempt(null)
+      setStudentExams([])
+      setStudentAttempts([])
+      setStudentResult(null)
       setScreen('overview')
     } catch (error: unknown) {
       setAuthError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
@@ -88,10 +119,46 @@ function App() {
 
   if (sessionChecking) return <main className="loading-screen" aria-live="polite">Checking session…</main>
   if (!user || !role) return <Login onSubmit={signIn} busy={authBusy} error={authError} />
-  if (role === 'student' && !exam) return <main className="loading-screen" aria-live="polite">Loading your workspace…</main>
+  if (role === 'student' && studentLoading) return <main className="loading-screen" aria-live="polite">Loading your workspace…</main>
 
-  const startExam = async () => { setAttempt(await mockApi.createAttempt()); setScreen('exam'); setMessage('The attempt is local-first and will sync when a server is available.') }
-  const submit = async () => { setAttempt(await mockApi.submitAttempt()); setScreen('results'); setMessage('Attempt submitted. Marks are calculated by the server contract.') }
+  const selectedStudentExam = studentExams.find((item) => item.id === selectedStudentExamId) ?? studentExams[0] ?? null
+  const startExam = async () => {
+    if (!selectedStudentExam) return
+    setStudentBusy(true)
+    setStudentError(null)
+    try {
+      const key = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      const started = await httpApi.startAttempt(selectedStudentExam.id, key)
+      setAttempt(started)
+      setStudentAttempts((items) => [...items.filter((item) => item.id !== started.id), started])
+      setStudentResult(started.result)
+      setScreen(started.status === 'submitted' ? 'results' : 'exam')
+      setMessage(started.status === 'submitted' ? 'This attempt is already submitted.' : 'Attempt started on Django.')
+    } catch (error: unknown) {
+      setStudentError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
+    } finally {
+      setStudentBusy(false)
+    }
+  }
+  const submit = async () => {
+    if (!attempt || attempt.status === 'submitted' || studentBusy) return
+    setStudentBusy(true)
+    setStudentError(null)
+    try {
+      const result = await httpApi.submitAttempt(attempt.id)
+      setStudentResult(result)
+      const refreshed = await httpApi.getAttempts()
+      const submitted = refreshed.find((item) => item.id === attempt.id) ?? { ...attempt, status: 'submitted' as const, submitted_at: new Date().toISOString(), result }
+      setStudentAttempts(refreshed)
+      setAttempt(submitted)
+      setScreen('results')
+      setMessage('Attempt submitted. Results were calculated by Django.')
+    } catch (error: unknown) {
+      setStudentError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
+    } finally {
+      setStudentBusy(false)
+    }
+  }
 
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Primary navigation">
@@ -104,12 +171,13 @@ function App() {
       <header className="topbar"><div><span className="eyebrow">{role === 'admin' ? 'ADMIN CONSOLE' : 'STUDENT DESK'}</span><h1>{screen === 'studio' ? 'Build a clear assessment.' : screen === 'exam' ? 'Take your time.' : screen === 'results' ? 'See what stuck.' : `Welcome, ${user.username}.`}</h1></div><div className="topbar-meta"><span className="sync-state">● Session active</span><button className="avatar" aria-label={`Signed in as ${user.username}`}>{user.username.slice(0, 2).toUpperCase()}</button></div></header>
       {message && <div className="notice" role="status">{message}<button onClick={() => setMessage('')} aria-label="Dismiss message">×</button></div>}
       {adminError && role === 'admin' && <div className="notice" role="alert">{adminError.message}<button className="text-button" onClick={() => void refreshAdmin()}>Retry</button></div>}
+      {studentError && role === 'student' && <div className="notice" role="alert">{studentError.message}<button className="text-button" onClick={() => void refreshStudent()}>Retry</button></div>}
       {role === 'admin' && screen === 'overview' && <AdminOverview exams={adminExams} students={students} loading={adminLoading} onOpen={() => setScreen('studio')} onRefresh={refreshAdmin} />}
       {role === 'admin' && screen === 'studio' && <ExamStudio exams={adminExams} students={students} onRefresh={refreshAdmin} onMessage={setMessage} />}
       {role === 'admin' && screen === 'students' && <Students students={students} loading={adminLoading} onProvisioned={refreshAdmin} onMessage={setMessage} />}
-      {role === 'student' && screen === 'overview' && <StudentOverview exam={exam!} onStart={startExam} />}
-      {role === 'student' && screen === 'exam' && attempt && <ExamRunner exam={exam!} attempt={attempt} onChange={setAttempt} onSubmit={submit} />}
-      {role === 'student' && screen === 'results' && <Results exam={exam!} attempt={attempt} onStart={startExam} />}
+      {role === 'student' && screen === 'overview' && <StudentOverview exams={studentExams} selectedExamId={selectedStudentExam?.id ?? ''} onSelect={setSelectedStudentExamId} attempt={attempt} onStart={startExam} busy={studentBusy} />}
+      {role === 'student' && screen === 'exam' && selectedStudentExam && attempt && <ExamRunner exam={selectedStudentExam} attempt={attempt} onChange={setAttempt} onSubmit={submit} busy={studentBusy} />}
+      {role === 'student' && screen === 'results' && selectedStudentExam && <Results exam={selectedStudentExam} attempt={attempt} result={studentResult} onStart={startExam} busy={studentBusy} />}
     </main>
   </div>
 }
@@ -190,20 +258,49 @@ function Students({ students, loading, onProvisioned, onMessage }: { students: A
   return <section className="table-panel"><div className="section-heading"><div><span className="eyebrow">LEARNERS</span><h2>Roster with fewer surprises.</h2></div><button className="primary-button" onClick={() => setOpen((value) => !value)}>{open ? 'Close form' : 'Add learner'}</button></div>{open && <form className="notice" onSubmit={submit}><div className="option-grid"><label>Name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></label><label>Student ID<input required value={form.studentId} onChange={(event) => setForm({ ...form, studentId: event.target.value })} /></label><label>Temporary password<input required type="password" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label></div>{error && <p role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? 'Provisioning…' : 'Provision student'}</button></form>}<div className="table-row table-head"><span>Name</span><span>Student ID</span><span>Access</span><span>Status</span></div>{loading && <p className="muted">Loading students…</p>}{!loading && students.length === 0 && <p className="muted">No students yet.</p>}{students.map((student) => <div className="table-row" key={student.id}><span>{student.name}</span><span>{student.student_id}</span><span>{student.is_active ? 'Ready' : 'Inactive'}</span><span>{student.is_active ? 'Active' : 'Inactive'}</span></div>)}</section>
 }
 
-function StudentOverview({ exam, onStart }: { exam: Exam; onStart: () => void }) { return <section className="page-grid"><div className="hero-panel student-hero"><span className="eyebrow">ASSIGNED PRACTICE</span><h2>Ready when you are.</h2><p>{exam.title} is available offline on this classroom node. Your answers will sync when the connection returns.</p><button className="primary-button" onClick={onStart}>Read instructions <span aria-hidden>→</span></button></div><div className="metric-stack"><Metric label="Time limit" value={`${Math.round(exam.durationSeconds / 60)} min`} note="Server deadline" /><Metric label="Questions" value={String(exam.questions.length)} note="3 formats" /><Metric label="Status" value="Open" note="One attempt available" /></div></section> }
-
-function ExamRunner({ exam, attempt, onChange, onSubmit }: { exam: Exam; attempt: Attempt; onChange: (attempt: Attempt) => void; onSubmit: () => void }) {
-  const [index, setIndex] = useState(0)
-  const [remaining, setRemaining] = useState(Math.max(0, Math.ceil((attempt.deadline - Date.now()) / 1000)))
-  const question = exam.questions[index]
-  useEffect(() => { const timer = window.setInterval(() => setRemaining(Math.max(0, Math.ceil((attempt.deadline - Date.now()) / 1000))), 1000); return () => window.clearInterval(timer) }, [attempt.deadline])
-  useEffect(() => { if (remaining === 0 && !attempt.submittedAt) onSubmit() }, [remaining, attempt.submittedAt, onSubmit])
-  const answer = attempt.answers[question.id]
-  const choose = async (value: string | string[]) => { const saved = await mockApi.saveAnswer(question.id, value); onChange(saved) }
-  const toggleMultiple = (value: string) => { const current = Array.isArray(answer) ? answer : []; choose(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]) }
-  return <section className="exam-layout"><div className="exam-main"><div className="exam-bar"><div><span className="eyebrow">{exam.title}</span><h2>Question {index + 1} of {exam.questions.length}</h2></div><div className={`timer ${remaining < 30 ? 'urgent' : ''}`} aria-live="polite"><span className="eyebrow">TIME LEFT</span><strong>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong></div></div><div className="question-card"><p className="question-type">{question.type === 'single' ? 'Choose one' : question.type === 'multiple' ? 'Choose all that apply' : 'Enter a number'}</p><h3>{question.prompt}</h3>{question.type === 'numeric' && <input className="numeric-input" inputMode="decimal" aria-label="Numeric answer" value={typeof answer === 'string' ? answer : ''} onChange={(event) => choose(event.target.value)} />}{question.options && <div className="answer-list">{question.options.map((option) => { const selected = Array.isArray(answer) ? answer.includes(option) : answer === option; return <button className={`answer-option ${selected ? 'selected' : ''}`} key={option} onClick={() => question.type === 'multiple' ? toggleMultiple(option) : choose(option)} aria-pressed={selected}><span className="option-letter">{String.fromCharCode(65 + question.options!.indexOf(option))}</span>{option}</button> })}</div>}<div className="question-actions"><button className="secondary-button" onClick={() => setIndex((index + exam.questions.length - 1) % exam.questions.length)}>Previous</button><button className="primary-button" onClick={() => index === exam.questions.length - 1 ? onSubmit() : setIndex(index + 1)}>{index === exam.questions.length - 1 ? 'Submit attempt' : 'Save & next'}</button></div></div></div><aside className="exam-rail"><span className="eyebrow">QUESTION MAP</span>{exam.questions.map((item, itemIndex) => <button className={`question-map ${itemIndex === index ? 'active' : ''} ${attempt.answers[item.id] !== undefined ? 'answered' : ''}`} key={item.id} onClick={() => setIndex(itemIndex)}><span>0{itemIndex + 1}</span><span>{attempt.answers[item.id] !== undefined ? 'Answered' : 'Not answered'}</span></button>)}<p className="muted small-copy">Answers save on this device first. The server accepts the final attempt once.</p></aside></section>
+function studentQuestions(exam: ApiExam) {
+  return exam.sections.flatMap((section) => section.exam_questions).sort((a, b) => a.position - b.position).map((link) => link.question)
 }
 
-function Results({ exam, attempt, onStart }: { exam: Exam; attempt?: Attempt; onStart: () => void }) { return <section className="results-layout"><div className="result-hero"><span className="eyebrow">ATTEMPT RECEIPT</span><h2>{attempt?.submittedAt ? 'Nice work showing up.' : 'No attempt yet.'}</h2><p>{attempt?.submittedAt ? `You earned ${attempt.score ?? 0} marks on ${exam.title}.` : 'Start the practice exam when you are ready.'}</p>{!attempt?.submittedAt && <button className="primary-button" onClick={onStart}>Start exam</button>}</div>{attempt?.submittedAt && <div className="result-breakdown"><div className="score-block"><span className="eyebrow">SCORE</span><strong>{attempt.score ?? 0}</strong><span className="muted">out of {exam.questions.reduce((sum, item) => sum + item.points, 0)}</span></div><div className="result-list">{exam.questions.map((question) => <div className="result-row" key={question.id}><span>{question.prompt}</span><span>{attempt.answers[question.id] === undefined ? 'Not answered' : 'Recorded'}</span></div>)}</div></div>}</section> }
+function StudentOverview({ exams, selectedExamId, onSelect, attempt, onStart, busy }: { exams: ApiExam[]; selectedExamId: string; onSelect: (id: string) => void; attempt: ApiAttempt | null; onStart: () => void; busy: boolean }) {
+  if (exams.length === 0) return <section className="page-grid"><div className="hero-panel student-hero"><span className="eyebrow">ASSIGNED LEARNING</span><h2>No published exams yet.</h2><p>Your teacher has not assigned an available exam to this account.</p></div></section>
+  const exam = exams.find((item) => item.id === selectedExamId) ?? exams[0]
+  const questions = studentQuestions(exam)
+  const activeAttempt = attempt?.exam === exam.id && attempt.status === 'in_progress'
+  const submittedAttempt = attempt?.exam === exam.id && attempt.status === 'submitted'
+  return <section className="page-grid"><div className="hero-panel student-hero"><span className="eyebrow">ASSIGNED PRACTICE · FROM DJANGO</span><h2>{exam.title}</h2><p>{activeAttempt ? 'Resume the attempt from the server deadline.' : submittedAttempt ? 'This attempt is submitted. Review the server result.' : 'Start when you are ready. Your attempt and answers are persisted by Django.'}</p><button className="primary-button" onClick={onStart} disabled={busy || submittedAttempt}>{busy ? 'Starting…' : activeAttempt ? 'Resume attempt' : submittedAttempt ? 'Submitted' : 'Start exam'} <span aria-hidden>→</span></button></div><div className="metric-stack"><Metric label="Time limit" value={`${exam.duration_minutes} min`} note="Server deadline" /><Metric label="Questions" value={String(questions.length)} note="Published content" /><Metric label="Availability" value={exam.available_until ? 'Scheduled' : 'Open'} note={exam.status} /></div><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">ASSIGNED EXAMS</span><h3>Choose an assessment</h3></div></div>{exams.map((item) => <button className={`question-map ${item.id === exam.id ? 'active' : ''}`} key={item.id} onClick={() => onSelect(item.id)}><span>{item.title}</span><span>{item.duration_minutes} min · {studentQuestions(item).length} questions</span></button>)}</section></section>
+}
+
+function ExamRunner({ exam, attempt, onChange, onSubmit, busy }: { exam: ApiExam; attempt: ApiAttempt; onChange: (attempt: ApiAttempt) => void; onSubmit: () => void; busy: boolean }) {
+  const [index, setIndex] = useState(0)
+  const questions = studentQuestions(exam)
+  const [remaining, setRemaining] = useState(Math.max(0, Math.ceil((new Date(attempt.deadline_at).getTime() - Date.now()) / 1000)))
+  const [saving, setSaving] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState('')
+  const [expiredSubmitted, setExpiredSubmitted] = useState(false)
+  const question = questions[index]
+  useEffect(() => { const timer = window.setInterval(() => setRemaining(Math.max(0, Math.ceil((new Date(attempt.deadline_at).getTime() - Date.now()) / 1000))), 1000); return () => window.clearInterval(timer) }, [attempt.deadline_at])
+  useEffect(() => { if (remaining === 0 && !expiredSubmitted && attempt.status === 'in_progress') { setExpiredSubmitted(true); onSubmit() } }, [remaining, expiredSubmitted, attempt.status, onSubmit])
+  const answer = attempt.answers.find((item) => item.question === question.id)?.value as string | string[] | undefined
+  const choose = async (value: unknown) => {
+    setSaving(question.id); setSaveError('')
+    try {
+      const saved = await httpApi.saveAnswer(attempt.id, question.id, value)
+      const nextAnswers = [...attempt.answers.filter((item) => item.question !== question.id), saved]
+      onChange({ ...attempt, answers: nextAnswers })
+    } catch (error: unknown) {
+      setSaveError(error instanceof HttpApiError ? error.message : 'Answer could not be saved. Please retry.')
+    } finally { setSaving(null) }
+  }
+  const options = (question.options ?? []).map((option) => String(option))
+  const toggleMultiple = (value: string) => { const current = Array.isArray(answer) ? answer.map(String) : []; void choose(current.includes(value) ? current.filter((item) => item !== value) : [...current, value]) }
+  return <section className="exam-layout"><div className="exam-main"><div className="exam-bar"><div><span className="eyebrow">{exam.title}</span><h2>Question {index + 1} of {questions.length}</h2></div><div className={`timer ${remaining < 30 ? 'urgent' : ''}`} aria-live="polite"><span className="eyebrow">TIME LEFT</span><strong>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong></div></div><div className="question-card"><p className="question-type">{question.question_type === 'single' ? 'Choose one' : question.question_type === 'multi' ? 'Choose all that apply' : 'Enter a number'}</p><h3>{question.prompt}</h3>{question.question_type === 'numeric' && <input className="numeric-input" inputMode="decimal" aria-label="Numeric answer" value={typeof answer === 'string' ? answer : ''} onChange={(event) => void choose(event.target.value)} disabled={busy || saving !== null} />}{question.question_type !== 'numeric' && <div className="answer-list">{options.map((option, optionIndex) => { const selected = Array.isArray(answer) ? answer.includes(option) : answer === option; return <button className={`answer-option ${selected ? 'selected' : ''}`} key={option} onClick={() => question.question_type === 'multi' ? toggleMultiple(option) : void choose(option)} aria-pressed={selected} disabled={busy || saving !== null}><span className="option-letter">{String.fromCharCode(65 + optionIndex)}</span>{option}</button> })}</div>}{saving === question.id && <p className="muted" role="status">Saving…</p>}{!saving && !saveError && attempt.answers.some((item) => item.question === question.id) && <p className="muted" role="status">Saved</p>}{saveError && <p className="notice" role="alert">{saveError}</p>}<div className="question-actions"><button className="secondary-button" onClick={() => setIndex((index + questions.length - 1) % questions.length)} disabled={busy}>Previous</button><button className="primary-button" onClick={() => index === questions.length - 1 ? onSubmit() : setIndex(index + 1)} disabled={busy || saving !== null}>{index === questions.length - 1 ? 'Submit attempt' : 'Save & next'}</button></div></div></div><aside className="exam-rail"><span className="eyebrow">QUESTION MAP</span>{questions.map((item, itemIndex) => <button className={`question-map ${itemIndex === index ? 'active' : ''} ${attempt.answers.some((answerItem) => answerItem.question === item.id) ? 'answered' : ''}`} key={item.id} onClick={() => setIndex(itemIndex)}><span>0{itemIndex + 1}</span><span>{attempt.answers.some((answerItem) => answerItem.question === item.id) ? 'Answered' : 'Not answered'}</span></button>)}<p className="muted small-copy">Answers are persisted by Django. The timer uses the server deadline.</p></aside></section>
+}
+
+function Results({ exam, attempt, result, onStart, busy }: { exam: ApiExam; attempt: ApiAttempt | null; result: ApiResult | null; onStart: () => void; busy: boolean }) {
+  const questions = studentQuestions(exam)
+  const submitted = attempt?.status === 'submitted' || Boolean(result)
+  return <section className="results-layout"><div className="result-hero"><span className="eyebrow">ATTEMPT RECEIPT · SERVER RESULT</span><h2>{submitted ? 'Nice work showing up.' : 'No submitted attempt yet.'}</h2><p>{submitted ? `Your result for ${exam.title} is stored by Django.` : 'Start the assigned exam when you are ready.'}</p>{!submitted && <button className="primary-button" onClick={onStart} disabled={busy}>{busy ? 'Starting…' : 'Start exam'}</button>}</div>{submitted && <div className="result-breakdown"><div className="score-block"><span className="eyebrow">SCORE</span><strong>{result?.score ?? attempt?.result?.score ?? '0.00'}</strong><span className="muted">Server calculated</span></div><div className="result-list"><div className="result-row"><span>Correct</span><span>{result?.correct_count ?? attempt?.result?.correct_count ?? 0}</span></div><div className="result-row"><span>Incorrect</span><span>{result?.incorrect_count ?? attempt?.result?.incorrect_count ?? 0}</span></div><div className="result-row"><span>Unanswered</span><span>{result?.unanswered_count ?? attempt?.result?.unanswered_count ?? questions.length}</span></div>{questions.map((question) => <div className="result-row" key={question.id}><span>{question.prompt}</span><span>{attempt?.answers.some((item) => item.question === question.id) ? 'Recorded' : 'Not answered'}</span></div>)}</div></div>}</section>
+}
 
 export default App

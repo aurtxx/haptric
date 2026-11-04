@@ -94,4 +94,24 @@ describe('httpApi authentication boundary', () => {
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ exam: 'exam-1', name: 'Demo', position: 1 })
     expect(JSON.parse(fetchMock.mock.calls[6][1].body)).toEqual({ student: 'student-1' })
   })
+
+  it('uses typed student attempt endpoints with idempotency and persisted answers', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-student' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'attempt-1', exam: 'exam-1', student: 'student-1', status: 'in_progress', started_at: '2026-01-01T00:00:00Z', deadline_at: '2026-01-01T00:30:00Z', answers: [], result: null }))
+      .mockResolvedValueOnce(jsonResponse({ id: 1, question: 'question-1', value: 'A', saved_at: '2026-01-01T00:01:00Z' }))
+      .mockResolvedValueOnce(jsonResponse({ score: '1.00', correct_count: 1, incorrect_count: 0, unanswered_count: 0, calculated_at: '2026-01-01T00:02:00Z' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await httpApi.startAttempt('exam-1', 'attempt-key-1')
+    await httpApi.saveAnswer('attempt-1', 'question-1', 'A')
+    await httpApi.submitAttempt('attempt-1')
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/auth/csrf/', '/api/v1/attempts/start/', '/api/v1/attempts/attempt-1/answer/', '/api/v1/attempts/attempt-1/submit/',
+    ])
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST' })
+    expect(new Headers(fetchMock.mock.calls[1][1].headers).get('Idempotency-Key')).toBe('attempt-key-1')
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ question: 'question-1', value: 'A' })
+  })
 })

@@ -1,4 +1,5 @@
 import type {
+  ApiAnswer,
   ApiAttempt,
   ApiAssignment,
   ApiError,
@@ -6,6 +7,7 @@ import type {
   ApiExamSection,
   ApiExam,
   ApiQuestion,
+  ApiResult,
   ApiStudent,
   AuthenticatedUser,
   ValidationError,
@@ -128,6 +130,9 @@ export const httpApi = {
   publishExam: (id: string) => request<ApiExam>(`exams/${id}/publish/`, { method: 'POST', body: JSON.stringify({}) }),
   assignExam: (id: string, student: string) => request<ApiAssignment>(`exams/${id}/assign/`, { method: 'POST', body: JSON.stringify({ student }) }),
   getAttempts: () => request<ApiAttempt[]>('attempts/'),
+  startAttempt: (examId: string, idempotencyKey: string) => request<ApiAttempt>('attempts/start/', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ exam: examId }) }),
+  saveAnswer: (attemptId: string, questionId: string, value: unknown) => request<ApiAnswer>(`attempts/${attemptId}/answer/`, { method: 'PUT', body: JSON.stringify({ question: questionId, value }) }),
+  submitAttempt: (attemptId: string) => request<ApiResult>(`attempts/${attemptId}/submit/`, { method: 'POST', body: JSON.stringify({}) }),
 }
 
 export function resetHttpApiCsrfForTests() {

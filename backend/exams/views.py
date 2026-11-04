@@ -2,6 +2,7 @@ import uuid
 import json
 from datetime import timedelta
 from django.contrib.auth import authenticate, login, logout
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
@@ -12,8 +13,8 @@ from rest_framework import decorators, response, serializers, status, viewsets
 from rest_framework.decorators import api_view
 from .models import Answer, Attempt, AuditEvent, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Student, Subject, SyncOutbox, User
 from .permissions import IsOrgMember, IsOrgStaff, IsStudent, IsStudentOrStaff
-from .serializers import AnswerSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StudentProvisionSerializer, StudentSerializer, SubjectSerializer, UserSerializer
-from .services import submit_attempt
+from .serializers import AnswerSerializer, AnswerSubmissionSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StudentProvisionSerializer, StudentSerializer, SubjectSerializer, UserSerializer
+from .services import expire_attempt_if_needed, submit_attempt, validate_answer_value
 
 def health(_request):
     return JsonResponse({"status": "ok", "service": "exam-platform-api"})
@@ -229,6 +230,27 @@ class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
         if self.request.user.role == User.Roles.STUDENT:
             qs = qs.filter(student__user=self.request.user)
         return qs
+
+    def _expire_visible_attempts(self, attempts):
+        for attempt in attempts:
+            if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired():
+                expire_attempt_if_needed(attempt_id=attempt.id, actor=self.request.user)
+                attempt.refresh_from_db()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        attempts = list(queryset)
+        self._expire_visible_attempts(attempts)
+        serializer = self.get_serializer(attempts, many=True)
+        return response.Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance.status == Attempt.Status.IN_PROGRESS and instance.is_expired():
+            expire_attempt_if_needed(attempt_id=instance.id, actor=request.user)
+            instance = self.get_queryset().get(id=instance.id)
+        return response.Response(self.get_serializer(instance).data)
+
     @decorators.action(detail=False, methods=["post"], permission_classes=[IsStudent])
     @transaction.atomic
     def start(self, request):
@@ -241,24 +263,40 @@ class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
         student = get_object_or_404(Student, user=request.user, organization_id=request.user.organization_id, is_active=True)
         if not ExamAssignment.objects.filter(exam=exam, student=student).exists():
             return response.Response({"detail": "Exam is not assigned to this student."}, status=status.HTTP_403_FORBIDDEN)
-        existing = Attempt.objects.filter(exam=exam, student=student, status=Attempt.Status.IN_PROGRESS).first()
+        # Lock the student row so rapid clicks/two tabs cannot create two active attempts.
+        student = Student.objects.select_for_update().get(id=student.id)
+        existing = Attempt.objects.select_for_update().filter(exam=exam, student=student).order_by("started_at").first()
         if existing:
+            if existing.status == Attempt.Status.IN_PROGRESS and existing.is_expired():
+                submit_attempt(attempt_id=existing.id, actor=request.user)
+                existing = Attempt.objects.select_related("result").get(id=existing.id)
             return response.Response(self.get_serializer(existing).data)
         started = timezone.now()
-        attempt = Attempt.objects.create(exam=exam, student=student, started_at=started, deadline_at=started + timedelta(minutes=exam.duration_minutes), idempotency_key=request.headers.get("Idempotency-Key", str(uuid.uuid4())))
+        idempotency_key = request.headers.get("Idempotency-Key") or str(uuid.uuid4())
+        attempt = Attempt.objects.create(exam=exam, student=student, started_at=started, deadline_at=started + timedelta(minutes=exam.duration_minutes), idempotency_key=idempotency_key)
         return response.Response(self.get_serializer(attempt).data, status=status.HTTP_201_CREATED)
+
     @decorators.action(detail=True, methods=["put", "patch"], permission_classes=[IsStudent])
+    @transaction.atomic
     def answer(self, request, pk=None):
         attempt = self.get_object()
+        attempt = Attempt.objects.select_for_update().select_related("student").get(id=attempt.id)
         if attempt.student.user_id != request.user.id:
             return response.Response({"detail": "Forbidden."}, status=status.HTTP_403_FORBIDDEN)
         if attempt.status != Attempt.Status.IN_PROGRESS or attempt.is_expired():
             if attempt.status == Attempt.Status.IN_PROGRESS and attempt.is_expired():
                 submit_attempt(attempt_id=attempt.id, actor=request.user)
             return response.Response({"detail": "Attempt is closed."}, status=status.HTTP_409_CONFLICT)
-        question = get_object_or_404(Question, id=request.data.get("question"), organization_id=request.user.organization_id, exam_questions__section__exam=attempt.exam)
-        answer, _ = Answer.objects.update_or_create(attempt=attempt, question=question, defaults={"value": request.data.get("value")})
+        payload = AnswerSubmissionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        question = get_object_or_404(Question, id=payload.validated_data["question"], organization_id=request.user.organization_id, exam_questions__section__exam=attempt.exam)
+        try:
+            validate_answer_value(question, payload.validated_data["value"])
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"value": str(exc)})
+        answer, _ = Answer.objects.update_or_create(attempt=attempt, question=question, defaults={"value": payload.validated_data["value"]})
         return response.Response(AnswerSerializer(answer).data)
+
     @decorators.action(detail=True, methods=["post"], permission_classes=[IsStudentOrStaff])
     def submit(self, request, pk=None):
         attempt = self.get_object()

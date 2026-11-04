@@ -139,6 +139,10 @@ class AnswerSerializer(serializers.ModelSerializer):
         fields = ["id", "question", "value", "saved_at"]
         read_only_fields = ["id", "saved_at"]
 
+class AnswerSubmissionSerializer(serializers.Serializer):
+    question = serializers.UUIDField()
+    value = serializers.JSONField()
+
 class ResultSerializer(serializers.ModelSerializer):
     class Meta:
         model = Result

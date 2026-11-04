@@ -1,5 +1,5 @@
 export type Role = 'admin' | 'student'
-export type QuestionType = 'single' | 'multiple' | 'numeric'
+export type QuestionType = 'single' | 'multi' | 'multiple' | 'numeric'
 export type UserRole = 'owner' | 'admin' | 'teacher' | 'invigilator' | 'student'
 
 export interface Organization {
@@ -38,8 +38,8 @@ export interface ApiQuestion {
   question_type: QuestionType
   prompt: string
   options: unknown[]
-  positive_marks: string
-  negative_marks: string
+  positive_marks?: string
+  negative_marks?: string
   version: number
   /** Present only for staff responses; student responses must omit it. */
   correct_answer?: unknown
