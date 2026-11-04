@@ -110,8 +110,8 @@ model or adding browser-offline behavior.
 
 ## GitHub Verification
 
-- pushed branch: pending
-- implementation SHA: pending
-- completion-report SHA: pending
-- final remote SHA: pending
-- canonical commit URL: pending
+- pushed branch: `feat/p1-hybrid-hardening`
+- implementation SHA: `79cae9075298840967a98e2e4111911fac36473a`
+- completion-report SHA: `67ec5bd07c23e54ebe0fc55d0762fb40f5bda7b5`
+- final remote SHA verified before this metadata-only update: `c6ad8ceca12bbde256f6492b7cf2790da0f886d7`
+- canonical commit URL: https://github.com/aurtxx/haptric/commit/c6ad8ceca12bbde256f6492b7cf2790da0f886d7
