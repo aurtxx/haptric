@@ -9,7 +9,7 @@ This file records durable milestone SHAs without rewriting prior Git history.
 | P0.3 Real Student Exam Engine | `feat/p0-real-student-attempt` | `2e79a79a97c4387f11542d1c978986f3d5f716eb` | `docs/P0_REAL_STUDENT_ATTEMPT.md` | `2e79a79a97c4387f11542d1c978986f3d5f716eb` |
 | P1.0 Hackathon Experience + Staff Attempt Review | `feat/p1-hackathon-experience` | `b880cc6f31d8b694ecc3accdb07684e1fd504ce3` | `c4fedd9cb916628ceb6daa9b9daf9120fe53dc5e` | `ea577e4daf65136efa2e5ef6213edb87ff2c317c` |
 | P1.1 Staff Attempt Detail + Answer Review | `feat/p1-attempt-review` | `e052e05` | `cf33026` | `5c50ab4` |
-| P1.2 Hybrid LAN + Cloud Sync MVP | `feat/p1-hybrid-sync-mvp` | `6011a5d3115c59f4846de235cd907d36394da6ba` | pending | pending |
+| P1.2 Hybrid LAN + Cloud Sync MVP | `feat/p1-hybrid-sync-mvp` | `6011a5d3115c59f4846de235cd907d36394da6ba` | `4a66c961c6feb9f875ce4e41c70bd9f36314caf0` | `8dc38b4d6954e63cbbad39d56fde4248812b7ff4` |
 
 The P1.1 final verified head above is the completion-metadata correction commit;
 later documentation-only history updates do not change the implementation or

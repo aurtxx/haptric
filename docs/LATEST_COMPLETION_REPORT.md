@@ -99,4 +99,5 @@ without expanding into browser-offline or multi-master synchronization.
 - implementation SHA visible remotely: `6011a5d3115c59f4846de235cd907d36394da6ba`
 - implementation URL: https://github.com/aurtxx/haptric/commit/6011a5d3115c59f4846de235cd907d36394da6ba
 - completion-report SHA: `4a66c961c6feb9f875ce4e41c70bd9f36314caf0`
-- final remote SHA: pending metadata follow-up push
+- final remote SHA: `8dc38b4d6954e63cbbad39d56fde4248812b7ff4`
+- canonical commit URL: https://github.com/aurtxx/haptric/commit/8dc38b4d6954e63cbbad39d56fde4248812b7ff4
