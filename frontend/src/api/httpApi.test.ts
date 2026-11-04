@@ -69,4 +69,29 @@ describe('httpApi authentication boundary', () => {
     await httpApi.logout()
     expect(new Headers(fetchMock.mock.calls[3][1].headers).get('X-CSRFToken')).toBe('after-login')
   })
+
+  it('uses typed persisted admin authoring endpoints', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-admin' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'exam-1', title: 'Demo', duration_minutes: 30, sections: [], status: 'draft' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'section-1', name: 'Demo', position: 1, exam_questions: [] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'question-1', prompt: 'Q', question_type: 'single', options: ['A'], positive_marks: '1.00', negative_marks: '0.00', version: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 1, position: 1 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'exam-1', title: 'Demo', duration_minutes: 30, sections: [], status: 'published' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 1, exam: 'exam-1', student: 'student-1', assigned_at: '2026-01-01T00:00:00Z' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await httpApi.createExam({ title: 'Demo', duration_minutes: 30, available_from: null, available_until: null })
+    await httpApi.createSection({ exam: 'exam-1', name: 'Demo', position: 1 })
+    await httpApi.createQuestion({ question_type: 'single', prompt: 'Q', options: ['A'], correct_answer: 'A', positive_marks: '1', negative_marks: '0' })
+    await httpApi.attachQuestion({ section: 'section-1', question_id: 'question-1', position: 1 })
+    await httpApi.publishExam('exam-1')
+    await httpApi.assignExam('exam-1', 'student-1')
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/v1/auth/csrf/', '/api/v1/exams/', '/api/v1/sections/', '/api/v1/questions/', '/api/v1/exam-questions/', '/api/v1/exams/exam-1/publish/', '/api/v1/exams/exam-1/assign/',
+    ])
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ exam: 'exam-1', name: 'Demo', position: 1 })
+    expect(JSON.parse(fetchMock.mock.calls[6][1].body)).toEqual({ student: 'student-1' })
+  })
 })

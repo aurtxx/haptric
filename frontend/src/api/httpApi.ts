@@ -1,7 +1,11 @@
 import type {
   ApiAttempt,
+  ApiAssignment,
   ApiError,
+  ApiExamQuestion,
+  ApiExamSection,
   ApiExam,
+  ApiQuestion,
   ApiStudent,
   AuthenticatedUser,
   ValidationError,
@@ -114,7 +118,15 @@ export const httpApi = {
   },
   logout: () => request<{ status: string }>('auth/logout/', { method: 'POST' }),
   getStudents: () => request<ApiStudent[]>('students/'),
+  provisionStudent: (input: { name: string; student_id: string; username?: string; temporary_password: string; is_active?: boolean }) => request<ApiStudent>('students/provision/', { method: 'POST', body: JSON.stringify(input) }),
   getExams: () => request<ApiExam[]>('exams/'),
+  getExam: (id: string) => request<ApiExam>(`exams/${id}/`),
+  createExam: (input: { title: string; duration_minutes: number; available_from?: string | null; available_until?: string | null }) => request<ApiExam>('exams/', { method: 'POST', body: JSON.stringify(input) }),
+  createSection: (input: { exam: string; name: string; position: number }) => request<ApiExamSection>('sections/', { method: 'POST', body: JSON.stringify(input) }),
+  createQuestion: (input: { question_type: 'single'; prompt: string; options: string[]; correct_answer: string; positive_marks: string; negative_marks: string; subject?: string | null }) => request<ApiQuestion>('questions/', { method: 'POST', body: JSON.stringify(input) }),
+  attachQuestion: (input: { section: string; question_id: string; position: number }) => request<ApiExamQuestion>('exam-questions/', { method: 'POST', body: JSON.stringify(input) }),
+  publishExam: (id: string) => request<ApiExam>(`exams/${id}/publish/`, { method: 'POST', body: JSON.stringify({}) }),
+  assignExam: (id: string, student: string) => request<ApiAssignment>(`exams/${id}/assign/`, { method: 'POST', body: JSON.stringify({ student }) }),
   getAttempts: () => request<ApiAttempt[]>('attempts/'),
 }
 

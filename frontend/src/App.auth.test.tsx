@@ -15,7 +15,10 @@ describe('App session boundary', () => {
   })
 
   it('restores an authenticated session after refresh and displays the backend role', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
@@ -29,7 +32,7 @@ describe('App session boundary', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ detail: 'Authentication required.' }, 401))
       .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-one' }))
-      .mockResolvedValueOnce(jsonResponse({ detail: 'Invalid credentials.' }, 400))
+      .mockResolvedValueOnce(jsonResponse({ detail: 'Invalid credentials.', code: 'authentication_failed' }, 401))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
@@ -48,6 +51,8 @@ describe('App session boundary', () => {
       .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-login' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
       .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-logout' }))
       .mockResolvedValueOnce(jsonResponse({ status: 'ok' }))
     vi.stubGlobal('fetch', fetchMock)
@@ -62,7 +67,7 @@ describe('App session boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await screen.findByRole('button', { name: 'Enter workspace' })
     expect(fetchMock.mock.calls[2][0]).toContain('/auth/login/')
-    expect(fetchMock.mock.calls[5][0]).toContain('/auth/logout/')
+    expect(fetchMock.mock.calls[7][0]).toContain('/auth/logout/')
   })
 
   it('shows a recoverable server-unavailable state when session lookup fails', async () => {

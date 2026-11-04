@@ -2,7 +2,7 @@ import uuid
 import json
 from datetime import timedelta
 from django.contrib.auth import authenticate, login, logout
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
@@ -12,7 +12,7 @@ from rest_framework import decorators, response, serializers, status, viewsets
 from rest_framework.decorators import api_view
 from .models import Answer, Attempt, AuditEvent, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Student, Subject, SyncOutbox, User
 from .permissions import IsOrgMember, IsOrgStaff, IsStudent, IsStudentOrStaff
-from .serializers import AnswerSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StudentSerializer, SubjectSerializer, UserSerializer
+from .serializers import AnswerSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StudentProvisionSerializer, StudentSerializer, SubjectSerializer, UserSerializer
 from .services import submit_attempt
 
 def health(_request):
@@ -78,6 +78,25 @@ class StudentViewSet(ScopedViewSet):
     serializer_class = StudentSerializer
     permission_classes = [IsOrgStaff]
 
+    def create(self, request, *args, **kwargs):
+        return response.Response({"detail": "Use the provision action to create a student login."}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    @decorators.action(detail=False, methods=["post"])
+    @transaction.atomic
+    def provision(self, request):
+        serializer = StudentProvisionSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            user = User(username=data["username"], organization=request.user.organization, role=User.Roles.STUDENT, is_active=data["is_active"])
+            user.set_password(data["temporary_password"])
+            user.save()
+            student = Student.objects.create(organization=request.user.organization, user=user, name=data["name"], student_id=data["student_id"], is_active=data["is_active"])
+        except IntegrityError:
+            raise serializers.ValidationError({"detail": "The login ID or student ID is already in use."})
+        AuditEvent.objects.create(organization=request.user.organization, actor=request.user, action="student.provisioned", entity_type="student", entity_id=str(student.id), metadata={"username": user.username})
+        return response.Response(StudentSerializer(student, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
 class SubjectViewSet(ScopedViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
@@ -88,7 +107,26 @@ class QuestionViewSet(ScopedViewSet):
     serializer_class = QuestionSerializer
     permission_classes = [IsOrgStaff]
     def perform_create(self, serializer):
+        subject = serializer.validated_data.get("subject")
+        if subject and subject.organization_id != self.request.user.organization_id:
+            raise serializers.ValidationError({"subject": "Subject belongs to another organization."})
         serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+
+    def _published_exam_question(self, question):
+        return question.exam_questions.filter(section__exam__status=Exam.Status.PUBLISHED).exists()
+
+    def perform_update(self, serializer):
+        if self._published_exam_question(serializer.instance):
+            raise serializers.ValidationError({"question": "Question content is immutable after publication."})
+        subject = serializer.validated_data.get("subject")
+        if subject and subject.organization_id != self.request.user.organization_id:
+            raise serializers.ValidationError({"subject": "Subject belongs to another organization."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self._published_exam_question(instance):
+            raise serializers.ValidationError({"question": "Question content is immutable after publication."})
+        instance.delete()
 
 class ExamViewSet(ScopedViewSet):
     queryset = Exam.objects.all().prefetch_related("sections__exam_questions__question")
@@ -105,6 +143,16 @@ class ExamViewSet(ScopedViewSet):
         return queryset
     def perform_create(self, serializer):
         serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+
+    def perform_update(self, serializer):
+        if serializer.instance.status == Exam.Status.PUBLISHED:
+            raise serializers.ValidationError({"exam": "Published exams are immutable."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.status == Exam.Status.PUBLISHED:
+            raise serializers.ValidationError({"exam": "Published exams cannot be deleted."})
+        instance.delete()
     @decorators.action(detail=True, methods=["post"])
     @transaction.atomic
     def publish(self, request, pk=None):
@@ -122,9 +170,10 @@ class ExamViewSet(ScopedViewSet):
         if exam.status != Exam.Status.PUBLISHED:
             return response.Response({"detail": "Only published exams can be assigned."}, status=status.HTTP_409_CONFLICT)
         student = get_object_or_404(Student, id=request.data.get("student"), organization_id=request.user.organization_id)
-        assignment, _ = ExamAssignment.objects.get_or_create(exam=exam, student=student)
-        AuditEvent.objects.create(organization=exam.organization, actor=request.user, action="exam.assigned", entity_type="assignment", entity_id=str(assignment.id), metadata={"student_id": str(student.id)})
-        return response.Response(ExamAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED)
+        assignment, created = ExamAssignment.objects.get_or_create(exam=exam, student=student)
+        if created:
+            AuditEvent.objects.create(organization=exam.organization, actor=request.user, action="exam.assigned", entity_type="assignment", entity_id=str(assignment.id), metadata={"student_id": str(student.id)})
+        return response.Response(ExamAssignmentSerializer(assignment).data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 class ExamSectionViewSet(viewsets.ModelViewSet):
     serializer_class = ExamSectionSerializer
@@ -133,7 +182,19 @@ class ExamSectionViewSet(viewsets.ModelViewSet):
         return ExamSection.objects.filter(exam__organization_id=self.request.user.organization_id)
     def perform_create(self, serializer):
         exam = get_object_or_404(Exam, id=self.request.data.get("exam"), organization_id=self.request.user.organization_id)
+        if exam.status != Exam.Status.DRAFT:
+            raise serializers.ValidationError({"exam": "Published exam content is immutable."})
         serializer.save(exam=exam)
+
+    def perform_update(self, serializer):
+        if serializer.instance.exam.status != Exam.Status.DRAFT:
+            raise serializers.ValidationError({"exam": "Published exam content is immutable."})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.exam.status != Exam.Status.DRAFT:
+            raise serializers.ValidationError({"exam": "Published exam content is immutable."})
+        instance.delete()
 
 class ExamQuestionViewSet(viewsets.ModelViewSet):
     serializer_class = ExamQuestionSerializer
@@ -150,7 +211,15 @@ class ExamQuestionViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         if serializer.instance.section.exam.status != Exam.Status.DRAFT:
             raise serializers.ValidationError({"exam": "Published exam content is immutable."})
+        question = serializer.validated_data.get("question")
+        if question and question.organization_id != self.request.user.organization_id:
+            raise serializers.ValidationError({"question_id": "Question belongs to another organization."})
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.section.exam.status != Exam.Status.DRAFT:
+            raise serializers.ValidationError({"exam": "Published exam content is immutable."})
+        instance.delete()
 
 class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AttemptSerializer

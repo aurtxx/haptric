@@ -74,8 +74,16 @@ export interface ApiStudent {
   id: string
   name: string
   student_id: string
+  username?: string | null
   is_active: boolean
   created_at: string
+}
+
+export interface ApiAssignment {
+  id: number
+  exam: string
+  student: string
+  assigned_at: string
 }
 
 export interface ApiAnswer {
