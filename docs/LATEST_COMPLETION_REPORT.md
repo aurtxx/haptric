@@ -15,7 +15,8 @@ feat/p1-hackathon-experience
 ## Commit
 
 Implementation commit: `b880cc6` (`feat: add hackathon experience and staff attempt review`)
-Report commit: recorded after this documentation commit is created.
+Completion-report commit: `c4fedd9` (`docs: record P1.0 completion report`)
+Follow-up verification commit: this final documentation correction.
 
 ## Completed
 
@@ -67,6 +68,8 @@ Report commit: recorded after this documentation commit is created.
 
 ## GitHub Verification
 
-- Pushed branch: pending until delivery push
-- Remote SHA verification: pending until delivery push
-- Canonical commit URL: pending until delivery push
+- Pushed branch: `feat/p1-hackathon-experience`
+- Remote SHA verification: `git ls-remote origin refs/heads/feat/p1-hackathon-experience`
+  returned `c4fedd9cb916628ceb6daa9b9daf9120fe53dc5e` before this final
+  documentation correction.
+- Canonical commit URL: https://github.com/aurtxx/haptric/commit/c4fedd9cb916628ceb6daa9b9daf9120fe53dc5e
