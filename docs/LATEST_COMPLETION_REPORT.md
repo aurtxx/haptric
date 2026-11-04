@@ -107,5 +107,7 @@ approval; keep synchronization and deployment separate.
   documentation commit.
 - Completion report commit is visible at
   https://github.com/aurtxx/haptric/commit/cf33026.
-- This metadata correction is the final documentation follow-up commit for
-  P1.1; its SHA is reported in the delivery response after push verification.
+- Metadata correction commit: `5c50ab4`, visible at
+  https://github.com/aurtxx/haptric/commit/5c50ab4.
+- Completion-history update commit: `023758e`, visible at
+  https://github.com/aurtxx/haptric/commit/023758e.
