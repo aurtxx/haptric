@@ -18,7 +18,7 @@ feat/p1-attempt-review
 
 ## Completion Report Commit
 
-PENDING until this report commit exists.
+`cf33026` — `docs: record P1.1 completion report`
 
 ## Baseline Commit
 
@@ -105,5 +105,7 @@ approval; keep synchronization and deployment separate.
 - Pushed branch: `feat/p1-attempt-review`
 - Implementation remote head was verified with `git ls-remote` before this
   documentation commit.
-- Final report SHA and canonical commit URL will be recorded after this report
-  commit is pushed.
+- Completion report commit is visible at
+  https://github.com/aurtxx/haptric/commit/cf33026.
+- This metadata correction is the final documentation follow-up commit for
+  P1.1; its SHA is reported in the delivery response after push verification.
