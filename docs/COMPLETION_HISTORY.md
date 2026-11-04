@@ -11,7 +11,7 @@ This file records durable milestone SHAs without rewriting prior Git history.
 | P1.1 Staff Attempt Detail + Answer Review | `feat/p1-attempt-review` | `e052e05` | `cf33026` | `5c50ab4` |
 | P1.2 Hybrid LAN + Cloud Sync MVP | `feat/p1-hybrid-sync-mvp` | `6011a5d3115c59f4846de235cd907d36394da6ba` | `4a66c961c6feb9f875ce4e41c70bd9f36314caf0` | `8dc38b4d6954e63cbbad39d56fde4248812b7ff4` |
 | P1.3 Hybrid Hardening + Reproducible Demo | `feat/p1-hybrid-hardening` | `79cae9075298840967a98e2e4111911fac36473a` | `67ec5bd07c23e54ebe0fc55d0762fb40f5bda7b5` | `67ec5bd07c23e54ebe0fc55d0762fb40f5bda7b5` |
-| P1.4 Final Hackathon Release + Judge Rehearsal | `release/hackathon-final` | `97cbd7c6660d0c11b119da7439c6b4ec1c9fccef` | pending | pending |
+| P1.4 Final Hackathon Release + Judge Rehearsal | `release/hackathon-final` | `97cbd7c6660d0c11b119da7439c6b4ec1c9fccef` | `0336f5ead620337b0b596357710c0e912e2d83cc` | `0336f5ead620337b0b596357710c0e912e2d83cc` |
 
 The P1.1 final verified head above is the completion-metadata correction commit;
 later documentation-only history updates do not change the implementation or
