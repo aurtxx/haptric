@@ -1,11 +1,16 @@
 from datetime import timedelta
 from decimal import Decimal
+import os
+import uuid
+from unittest.mock import patch
 
 import pytest
+from django.db import IntegrityError
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from exams.models import Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Student, User
+from exams.models import Answer, Attempt, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Result, Student, User
+from exams.services import submit_attempt
 
 
 @pytest.fixture
@@ -42,6 +47,10 @@ def test_student_exam_does_not_expose_answer_key(tenant_fixture):
     assert response.status_code == 200
     question_payload = response.json()["sections"][0]["exam_questions"][0]["question"]
     assert "correct_answer" not in question_payload
+    assert "positive_marks" not in question_payload
+    assert "negative_marks" not in question_payload
+    direct_question = client.get(f"/api/v1/questions/{tenant_fixture['question'].id}/")
+    assert direct_question.status_code == 403
 
 
 @pytest.mark.django_db
@@ -62,6 +71,170 @@ def test_attempt_start_answer_and_idempotent_submit(tenant_fixture):
 
 
 @pytest.mark.django_db
+def test_staff_attempt_review_is_org_scoped_and_includes_safe_result_summary(tenant_fixture):
+    """Staff can review same-tenant attempts without receiving answer keys."""
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"],
+        student=tenant_fixture["student"],
+        status=Attempt.Status.SUBMITTED,
+        started_at=timezone.now() - timedelta(minutes=5),
+        deadline_at=timezone.now() - timedelta(minutes=1),
+        submitted_at=timezone.now(),
+        idempotency_key="staff-review-attempt",
+    )
+    Result.objects.create(
+        attempt=attempt,
+        score=Decimal("3.00"),
+        correct_count=1,
+        incorrect_count=0,
+        unanswered_count=0,
+    )
+
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    response = client.get("/api/v1/attempts/")
+
+    assert response.status_code == 200
+    payload = next(item for item in response.json() if item["id"] == str(attempt.id))
+    assert payload["student_name"] == "Maya"
+    assert payload["student_id"] == "MAYA-1"
+    assert payload["exam_title"] == "Foundations"
+    assert payload["status"] == Attempt.Status.SUBMITTED
+    assert payload["started_at"] is not None
+    assert payload["submitted_at"] is not None
+    assert payload["result"] == {
+        "score": "3.00",
+        "correct_count": 1,
+        "incorrect_count": 0,
+        "unanswered_count": 0,
+        "calculated_at": payload["result"]["calculated_at"],
+    }
+    # Attempt review must remain a safe summary; answer keys are never part
+    # of the attempt/result representation.
+    assert "correct_answer" not in payload
+    assert "positive_marks" not in payload
+    assert "negative_marks" not in payload
+
+    client.force_authenticate(tenant_fixture["other_admin"])
+    assert client.get("/api/v1/attempts/").json() == []
+    assert client.get(f"/api/v1/attempts/{attempt.id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_staff_review_returns_ordered_question_states_and_reconciles_marks(tenant_fixture):
+    exam = tenant_fixture["exam"]
+    section = exam.sections.first()
+    incorrect = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.SINGLE, prompt="Second", options=["C", "D"],
+        correct_answer="C", positive_marks=2, negative_marks=1,
+    )
+    unanswered = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.SINGLE, prompt="Third", options=["E", "F"],
+        correct_answer="E", positive_marks=2, negative_marks=1,
+    )
+    ExamQuestion.objects.create(section=section, question=incorrect, position=2)
+    ExamQuestion.objects.create(section=section, question=unanswered, position=3)
+    attempt = Attempt.objects.create(
+        exam=exam, student=tenant_fixture["student"],
+        started_at=timezone.now() - timedelta(minutes=5),
+        deadline_at=timezone.now() + timedelta(minutes=5), idempotency_key="review-ordered-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    Answer.objects.create(attempt=attempt, question=incorrect, value="D")
+
+    student_client = APIClient()
+    student_client.force_authenticate(tenant_fixture["student_user"])
+    submitted = student_client.post(f"/api/v1/attempts/{attempt.id}/submit/", {}, format="json")
+    assert submitted.status_code == 200
+    assert Decimal(submitted.json()["score"]) == Decimal("2.00")
+
+    staff_client = APIClient()
+    staff_client.force_authenticate(tenant_fixture["admin"])
+    review = staff_client.get(f"/api/v1/attempts/{attempt.id}/review/")
+    assert review.status_code == 200
+    payload = review.json()
+    assert payload["student_name"] == "Maya"
+    assert payload["student_id"] == "MAYA-1"
+    assert payload["exam_title"] == "Foundations"
+    assert payload["result"]["score"] == "2.00"
+    questions = payload["questions"]
+    assert [item["position"] for item in questions] == [1, 2, 3]
+    assert [item["answer_state"] for item in questions] == ["correct", "incorrect", "unanswered"]
+    assert [item["marks_awarded"] for item in questions] == ["3.00", "-1.00", "0.00"]
+    assert sum(Decimal(item["marks_awarded"]) for item in questions) == Decimal(payload["result"]["score"])
+    assert [item["student_response"] for item in questions] == ["A", "D", None]
+    assert questions[0]["correct_answer"] == "A"
+
+    teacher = User.objects.create_user(username="teacher", password="pw", organization=tenant_fixture["org"], role=User.Roles.TEACHER)
+    teacher_client = APIClient()
+    teacher_client.force_authenticate(teacher)
+    assert teacher_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 200
+    assert student_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 403
+    student_attempt = student_client.get(f"/api/v1/attempts/{attempt.id}/")
+    assert student_attempt.status_code == 200
+    assert "correct_answer" not in student_attempt.json()
+    assert "positive_marks" not in student_attempt.json()
+    assert "negative_marks" not in student_attempt.json()
+    other_client = APIClient()
+    other_client.force_authenticate(tenant_fixture["other_admin"])
+    assert other_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_active_staff_review_withholds_correctness_and_marks(tenant_fixture):
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"], student=tenant_fixture["student"],
+        started_at=timezone.now(), deadline_at=timezone.now() + timedelta(minutes=5),
+        idempotency_key="review-active-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    response = client.get(f"/api/v1/attempts/{attempt.id}/review/")
+    assert response.status_code == 200
+    question = response.json()["questions"][0]
+    assert response.json()["status"] == Attempt.Status.IN_PROGRESS
+    assert question["answer_state"] == "pending"
+    assert question["marks_awarded"] is None
+    assert "correct_answer" not in question
+
+
+@pytest.mark.django_db
+def test_staff_review_uses_existing_multi_and_numeric_scoring(tenant_fixture):
+    section = tenant_fixture["exam"].sections.first()
+    multi = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.MULTI, prompt="Select two", options=["A", "B", "C"],
+        correct_answer=["A", "B"], positive_marks=2, negative_marks=1,
+    )
+    numeric = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.NUMERIC, prompt="Two plus two", options=[],
+        correct_answer="4", positive_marks=4, negative_marks=1,
+    )
+    ExamQuestion.objects.create(section=section, question=multi, position=2)
+    ExamQuestion.objects.create(section=section, question=numeric, position=3)
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"], student=tenant_fixture["student"],
+        deadline_at=timezone.now() + timedelta(minutes=5), idempotency_key="review-normalized-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    Answer.objects.create(attempt=attempt, question=multi, value=["B", "A"])
+    Answer.objects.create(attempt=attempt, question=numeric, value="4.0")
+    _, result = submit_attempt(attempt_id=attempt.id, actor=tenant_fixture["student_user"])
+    assert result.score == Decimal("9.00")
+
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    rows = client.get(f"/api/v1/attempts/{attempt.id}/review/").json()["questions"]
+    assert [row["answer_state"] for row in rows] == ["correct", "correct", "correct"]
+    assert [row["marks_awarded"] for row in rows] == ["3.00", "2.00", "4.00"]
+    assert sum(Decimal(row["marks_awarded"]) for row in rows) == result.score
+
+
+@pytest.mark.django_db
 def test_schedule_window_blocks_early_start(tenant_fixture):
     tenant_fixture["exam"].available_from = timezone.now() + timedelta(minutes=5)
     tenant_fixture["exam"].save(update_fields=["available_from"])
@@ -74,15 +247,32 @@ def test_schedule_window_blocks_early_start(tenant_fixture):
 @pytest.mark.django_db
 def test_sync_push_is_idempotent_and_tenant_bound(tenant_fixture):
     client = APIClient()
-    client.force_authenticate(tenant_fixture["admin"])
-    event = {"idempotency_key": "sync-1", "event_type": "student.updated", "entity_type": "student", "entity_id": "s1", "payload": {"revision": 1}}
-    first = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    second = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    assert first.status_code == second.status_code == 200
-    assert first.json() == second.json()
-    client.force_authenticate(tenant_fixture["other_admin"])
-    conflict = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    assert conflict.status_code == 409
+    event_id = str(uuid.uuid4())
+    event = {
+        "event_id": event_id,
+        "idempotency_key": "sync-1",
+        "event_type": "attempt.started",
+        "aggregate_type": "attempt",
+        "aggregate_id": event_id,
+        "origin_node": "lan-test",
+        "schema_version": 1,
+        "occurred_at": timezone.now().isoformat(),
+        "organization_id": str(tenant_fixture["org"].id),
+        "payload": {
+            "attempt_id": event_id,
+            "exam_id": str(tenant_fixture["exam"].id),
+            "student_id": str(tenant_fixture["student"].id),
+            "started_at": timezone.now().isoformat(),
+            "deadline_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+        },
+    }
+    with patch.dict(os.environ, {"HAPTRIC_SYNC_TOKEN": "test-sync-token", "HAPTRIC_SYNC_ORGANIZATION_ID": str(tenant_fixture["org"].id), "HAPTRIC_NODE_ID": "cloud-test"}):
+        first = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        second = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert first.status_code == second.status_code == 200, first.json()
+        assert first.json() == second.json()
+        conflict = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["other_org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert conflict.status_code == 403
 
 
 @pytest.mark.django_db
@@ -94,5 +284,278 @@ def test_csrf_session_login_and_me(tenant_fixture):
     response = client.post("/api/v1/auth/login/", {"username": "admin", "password": "pw"}, format="json", HTTP_X_CSRFTOKEN=token)
     assert response.status_code == 200
     assert response.json()["role"] == "admin"
+    assert response.json()["organization"] == str(tenant_fixture["org"].id)
     me_response = client.get("/api/v1/me/")
     assert me_response.status_code == 200
+    assert me_response.json()["username"] == "admin"
+
+
+@pytest.mark.django_db
+def test_anonymous_me_and_invalid_login_are_safe(tenant_fixture):
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    anonymous = client.get("/api/v1/me/")
+    assert anonymous.status_code == 401
+    assert anonymous.json()["code"] == "authentication_required"
+    invalid = client.post("/api/v1/auth/login/", {"username": "admin", "password": "wrong"}, format="json", HTTP_X_CSRFTOKEN=csrf)
+    assert invalid.status_code == 401
+    assert invalid.json()["code"] == "authentication_failed"
+
+
+@pytest.mark.django_db
+def test_logout_requires_csrf_and_ends_session(tenant_fixture):
+    client = APIClient(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    login_response = client.post("/api/v1/auth/login/", {"username": "admin", "password": "pw"}, format="json", HTTP_X_CSRFTOKEN=csrf)
+    assert login_response.status_code == 200
+    missing_csrf = client.post("/api/v1/auth/logout/", {}, format="json")
+    assert missing_csrf.status_code == 403
+    csrf_after_login = client.get("/api/v1/auth/csrf/").json()["csrfToken"]
+    logout_response = client.post("/api/v1/auth/logout/", {}, format="json", HTTP_X_CSRFTOKEN=csrf_after_login)
+    assert logout_response.status_code == 200
+    assert client.get("/api/v1/me/").status_code == 401
+    assert client.get("/api/v1/auth/logout/").status_code == 405
+
+
+@pytest.mark.django_db
+def test_student_provisioning_creates_hashed_linked_user(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    response = client.post("/api/v1/students/provision/", {"name": "New Student", "student_id": "NEW-1", "username": "new-student", "temporary_password": "Temporary-123!"}, format="json")
+    assert response.status_code == 201
+    student = Student.objects.get(student_id="NEW-1", organization=tenant_fixture["org"])
+    assert student.user is not None
+    assert student.user.role == User.Roles.STUDENT
+    assert student.user.organization_id == tenant_fixture["org"].id
+    assert student.user.check_password("Temporary-123!")
+    assert student.user.password != "Temporary-123!"
+    assert response.json()["username"] == "new-student"
+    assert "temporary_password" not in response.json()
+
+
+@pytest.mark.django_db
+def test_student_provisioning_rejects_duplicates_and_rolls_back(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    duplicate_username = client.post("/api/v1/students/provision/", {"name": "Duplicate", "student_id": "NEW-2", "username": "admin", "temporary_password": "Temporary-123!"}, format="json")
+    assert duplicate_username.status_code == 400
+    assert not Student.objects.filter(student_id="NEW-2").exists()
+    duplicate_student_id = client.post("/api/v1/students/provision/", {"name": "Duplicate", "student_id": "MAYA-1", "username": "new-student-2", "temporary_password": "Temporary-123!"}, format="json")
+    assert duplicate_student_id.status_code == 400
+    assert not User.objects.filter(username="new-student-2").exists()
+    with patch("exams.views.Student.objects.create", side_effect=IntegrityError):
+        failed = client.post("/api/v1/students/provision/", {"name": "Rollback", "student_id": "ROLLBACK-1", "username": "rollback-user", "temporary_password": "Temporary-123!"}, format="json")
+    assert failed.status_code == 400
+    assert not User.objects.filter(username="rollback-user").exists()
+    assert not Student.objects.filter(student_id="ROLLBACK-1").exists()
+
+
+@pytest.mark.django_db
+def test_student_provisioning_is_tenant_scoped(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["other_admin"])
+    response = client.post("/api/v1/students/provision/", {"name": "Other Student", "student_id": "OTHER-1", "username": "other-student", "temporary_password": "Temporary-123!"}, format="json")
+    assert response.status_code == 201
+    created = Student.objects.get(student_id="OTHER-1")
+    assert created.organization_id == tenant_fixture["other_org"].id
+    client.force_authenticate(tenant_fixture["admin"])
+    assert client.get(f"/api/v1/students/{created.id}/").status_code == 404
+    client.force_authenticate(tenant_fixture["student_user"])
+    unauthorized = client.post("/api/v1/students/provision/", {"name": "Blocked", "student_id": "BLOCKED-1", "username": "blocked", "temporary_password": "Temporary-123!"}, format="json")
+    assert unauthorized.status_code == 403
+
+
+@pytest.mark.django_db
+def test_exam_authoring_persistence_schedule_publish_and_assignment(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    invalid_duration = client.post("/api/v1/exams/", {"title": "Invalid", "duration_minutes": 0}, format="json")
+    assert invalid_duration.status_code == 400
+    invalid_schedule = client.post("/api/v1/exams/", {"title": "Invalid schedule", "duration_minutes": 10, "available_from": "2030-01-02T10:00:00Z", "available_until": "2030-01-02T09:00:00Z"}, format="json")
+    assert invalid_schedule.status_code == 400
+    created = client.post("/api/v1/exams/", {"title": "API Authoring Exam", "duration_minutes": 30, "available_from": "2030-01-02T09:00:00Z", "available_until": "2030-01-02T11:00:00Z"}, format="json")
+    assert created.status_code == 201
+    exam_id = created.json()["id"]
+    section = client.post("/api/v1/sections/", {"exam": exam_id, "name": "Demo Section", "position": 1}, format="json")
+    assert section.status_code == 201
+    section_id = section.json()["id"]
+    question_ids = []
+    for index in range(3):
+        question = client.post("/api/v1/questions/", {"question_type": "single", "prompt": f"Synthetic question {index + 1}", "options": ["A", "B"], "correct_answer": "A", "positive_marks": "1", "negative_marks": "0"}, format="json")
+        assert question.status_code == 201
+        question_ids.append(question.json()["id"])
+        attached = client.post("/api/v1/exam-questions/", {"section": section_id, "question_id": question.json()["id"], "position": index + 1}, format="json")
+        assert attached.status_code == 201
+    reopened = client.get(f"/api/v1/exams/{exam_id}/")
+    assert reopened.status_code == 200
+    assert reopened.json()["title"] == "API Authoring Exam"
+    assert reopened.json()["duration_minutes"] == 30
+    assert len(reopened.json()["sections"][0]["exam_questions"]) == 3
+    published = client.post(f"/api/v1/exams/{exam_id}/publish/", {}, format="json")
+    assert published.status_code == 200
+    assert published.json()["status"] == "published"
+    assignment = client.post(f"/api/v1/exams/{exam_id}/assign/", {"student": str(tenant_fixture["student"].id)}, format="json")
+    assert assignment.status_code == 201
+    duplicate = client.post(f"/api/v1/exams/{exam_id}/assign/", {"student": str(tenant_fixture["student"].id)}, format="json")
+    assert duplicate.status_code == 200
+    assert duplicate.json()["id"] == assignment.json()["id"]
+    assert ExamAssignment.objects.filter(exam_id=exam_id, student=tenant_fixture["student"]).count() == 1
+
+
+@pytest.mark.django_db
+def test_published_exam_content_and_question_keys_are_immutable(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    exam = tenant_fixture["exam"]
+    question = tenant_fixture["question"]
+    section = exam.sections.first()
+    create_link = client.post("/api/v1/exam-questions/", {"section": str(section.id), "question_id": str(question.id), "position": 2}, format="json")
+    assert create_link.status_code == 400
+    existing_link = exam.sections.first().exam_questions.first()
+    update_link = client.patch(f"/api/v1/exam-questions/{existing_link.id}/", {"position": 2}, format="json")
+    assert update_link.status_code == 400
+    delete_link = client.delete(f"/api/v1/exam-questions/{existing_link.id}/")
+    assert delete_link.status_code == 400
+    update_question = client.patch(f"/api/v1/questions/{question.id}/", {"prompt": "Changed"}, format="json")
+    assert update_question.status_code == 400
+    for mutation in (
+        {"options": ["A", "C"]},
+        {"correct_answer": "B"},
+        {"positive_marks": "4.00"},
+        {"negative_marks": "2.00"},
+    ):
+        assert client.patch(f"/api/v1/questions/{question.id}/", mutation, format="json").status_code == 400
+    delete_question = client.delete(f"/api/v1/questions/{question.id}/")
+    assert delete_question.status_code == 400
+    update_exam = client.patch(f"/api/v1/exams/{exam.id}/", {"title": "Changed"}, format="json")
+    assert update_exam.status_code == 400
+
+
+@pytest.mark.django_db
+def test_draft_exam_cannot_be_assigned_and_cross_tenant_question_cannot_attach(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    draft = Exam.objects.create(organization=tenant_fixture["org"], created_by=tenant_fixture["admin"], title="Draft", duration_minutes=10)
+    denied_assignment = client.post(f"/api/v1/exams/{draft.id}/assign/", {"student": str(tenant_fixture["student"].id)}, format="json")
+    assert denied_assignment.status_code == 409
+    section = ExamSection.objects.create(exam=draft, name="Core", position=1)
+    other_question = Question.objects.create(organization=tenant_fixture["other_org"], created_by=tenant_fixture["other_admin"], question_type="single", prompt="Other", options=["A"], correct_answer="A")
+    cross_tenant = client.post("/api/v1/exam-questions/", {"section": str(section.id), "question_id": str(other_question.id), "position": 1}, format="json")
+    assert cross_tenant.status_code in {400, 404}
+    other_student_user = User.objects.create_user(username="other-student", password="pw", organization=tenant_fixture["other_org"], role=User.Roles.STUDENT)
+    other_student = Student.objects.create(organization=tenant_fixture["other_org"], user=other_student_user, name="Other Student", student_id="OTHER-1")
+    cross_tenant_assignment = client.post(f"/api/v1/exams/{tenant_fixture['exam'].id}/assign/", {"student": str(other_student.id)}, format="json")
+    assert cross_tenant_assignment.status_code == 404
+
+
+@pytest.mark.django_db
+def test_student_discovery_excludes_unassigned_draft_and_cross_tenant(tenant_fixture):
+    unassigned = Exam.objects.create(organization=tenant_fixture["org"], created_by=tenant_fixture["admin"], title="Unassigned", duration_minutes=10, status=Exam.Status.PUBLISHED)
+    Exam.objects.create(organization=tenant_fixture["org"], created_by=tenant_fixture["admin"], title="Draft hidden", duration_minutes=10, status=Exam.Status.DRAFT)
+    other_exam = Exam.objects.create(organization=tenant_fixture["other_org"], created_by=tenant_fixture["other_admin"], title="Other tenant", duration_minutes=10, status=Exam.Status.PUBLISHED)
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    response = client.get("/api/v1/exams/")
+    assert response.status_code == 200
+    assert {item["title"] for item in response.json()} == {"Foundations"}
+    assert client.get(f"/api/v1/exams/{unassigned.id}/").status_code == 404
+    assert client.get(f"/api/v1/exams/{other_exam.id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_start_is_idempotent_and_restores_answers(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    first = client.post("/api/v1/attempts/start/", {"exam": str(tenant_fixture["exam"].id)}, format="json", HTTP_IDEMPOTENCY_KEY="restore-1")
+    second = client.post("/api/v1/attempts/start/", {"exam": str(tenant_fixture["exam"].id)}, format="json", HTTP_IDEMPOTENCY_KEY="restore-2")
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
+    answer = client.put(f"/api/v1/attempts/{first.json()['id']}/answer/", {"question": str(tenant_fixture["question"].id), "value": "A"}, format="json")
+    assert answer.status_code == 200
+    restored = client.get("/api/v1/attempts/")
+    assert restored.status_code == 200
+    payload = next(item for item in restored.json() if item["id"] == first.json()["id"])
+    assert payload["status"] == "in_progress"
+    assert payload["answers"][0]["value"] == "A"
+    assert len(Attempt.objects.filter(exam=tenant_fixture["exam"], student=tenant_fixture["student"])) == 1
+
+
+@pytest.mark.django_db
+def test_answer_validation_and_update_are_server_side(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    started = client.post("/api/v1/attempts/start/", {"exam": str(tenant_fixture["exam"].id)}, format="json")
+    attempt_id = started.json()["id"]
+    invalid = client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(tenant_fixture["question"].id), "value": "C"}, format="json")
+    assert invalid.status_code == 400
+    first = client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(tenant_fixture["question"].id), "value": "A"}, format="json")
+    second = client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(tenant_fixture["question"].id), "value": "B"}, format="json")
+    assert first.status_code == second.status_code == 200
+    assert Answer.objects.filter(attempt_id=attempt_id, question=tenant_fixture["question"]).count() == 1
+    assert Answer.objects.get(attempt_id=attempt_id, question=tenant_fixture["question"]).value == "B"
+
+
+@pytest.mark.django_db
+def test_expired_attempt_retrieval_submits_once_and_rejects_late_answer(tenant_fixture):
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    started = client.post("/api/v1/attempts/start/", {"exam": str(tenant_fixture["exam"].id)}, format="json")
+    attempt = Attempt.objects.get(id=started.json()["id"])
+    attempt.deadline_at = timezone.now() - timedelta(seconds=1)
+    attempt.save(update_fields=["deadline_at"])
+    retrieved = client.get("/api/v1/attempts/")
+    assert retrieved.status_code == 200
+    payload = retrieved.json()[0]
+    assert payload["status"] == "submitted"
+    assert payload["result"] is not None
+    assert Attempt.objects.get(id=attempt.id).status == Attempt.Status.SUBMITTED
+    assert Result.objects.filter(attempt_id=attempt.id).count() == 1
+    late = client.put(f"/api/v1/attempts/{attempt.id}/answer/", {"question": str(tenant_fixture["question"].id), "value": "A"}, format="json")
+    assert late.status_code == 409
+    repeated = client.post(f"/api/v1/attempts/{attempt.id}/submit/", {}, format="json")
+    assert repeated.status_code == 200
+    assert Result.objects.filter(attempt_id=attempt.id).count() == 1
+
+
+@pytest.mark.django_db
+def test_student_cannot_access_another_students_attempt(tenant_fixture):
+    other_user = User.objects.create_user(username="student-two", password="pw", organization=tenant_fixture["org"], role=User.Roles.STUDENT)
+    other_student = Student.objects.create(organization=tenant_fixture["org"], user=other_user, name="Second", student_id="SECOND-1")
+    attempt = Attempt.objects.create(exam=tenant_fixture["exam"], student=other_student, deadline_at=timezone.now() + timedelta(minutes=5), idempotency_key="other-attempt")
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    assert client.get(f"/api/v1/attempts/{attempt.id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_multi_and_numeric_answers_are_validated(tenant_fixture):
+    multi = Question.objects.create(
+        organization=tenant_fixture["org"],
+        created_by=tenant_fixture["admin"],
+        question_type=Question.Types.MULTI,
+        prompt="Choose two",
+        options=["A", "B", "C"],
+        correct_answer=["A", "B"],
+    )
+    numeric = Question.objects.create(
+        organization=tenant_fixture["org"],
+        created_by=tenant_fixture["admin"],
+        question_type=Question.Types.NUMERIC,
+        prompt="Two plus two",
+        options=[],
+        correct_answer="4",
+    )
+    section = tenant_fixture["exam"].sections.first()
+    ExamQuestion.objects.create(section=section, question=multi, position=2)
+    ExamQuestion.objects.create(section=section, question=numeric, position=3)
+
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["student_user"])
+    started = client.post("/api/v1/attempts/start/", {"exam": str(tenant_fixture["exam"].id)}, format="json")
+    attempt_id = started.json()["id"]
+
+    assert client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(multi.id), "value": ["A", "Z"]}, format="json").status_code == 400
+    assert client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(multi.id), "value": ["A", "B"]}, format="json").status_code == 200
+    assert client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(numeric.id), "value": "four"}, format="json").status_code == 400
+    assert client.put(f"/api/v1/attempts/{attempt_id}/answer/", {"question": str(numeric.id), "value": "4.0"}, format="json").status_code == 200

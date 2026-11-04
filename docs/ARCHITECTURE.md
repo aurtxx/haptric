@@ -8,7 +8,7 @@ The primary Codex session is the manager. It coordinates specialist threads, own
 
 ## Contract gates
 
-The architect proposed the smallest end-to-end data flow in `docs/ARCHITECTURE_PROPOSAL.md`; the manager integrated the contract into the backend and frontend foundations. The Design Director gate is represented by the original Northstar visual system and recorded desktop/tablet/mobile screenshots. Backend owns server behavior and validation; frontend owns presentation and client state; AI remains out of scope until a measurable product need exists.
+The architect proposed the smallest end-to-end data flow in `docs/ARCHITECTURE_PROPOSAL.md`; the manager integrated the contract into the backend and frontend foundations. The Design Director gate is represented by Haptric's original visual system and recorded desktop/tablet/mobile screenshots. Backend owns server behavior and validation; frontend owns presentation and client state; AI remains out of scope until a measurable product need exists.
 
 ## Implemented vertical-slice contract
 
