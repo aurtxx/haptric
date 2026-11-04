@@ -16,10 +16,10 @@ feat/p1-hybrid-hardening
 79cae9075298840967a98e2e4111911fac36473a
 
 ## Completion Report Commit
-PENDING (set in the documentation follow-up commit)
+67ec5bd07c23e54ebe0fc55d0762fb40f5bda7b5
 
 ## Final Remote Head
-PENDING (set in the documentation follow-up commit)
+67ec5bd07c23e54ebe0fc55d0762fb40f5bda7b5 (documentation metadata pin; final branch head is reported below)
 
 ## Completed
 
