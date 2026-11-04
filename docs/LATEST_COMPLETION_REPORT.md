@@ -18,7 +18,7 @@ docs/local-testing-guide
 
 ## Implementation Commit
 
-PENDING
+b93d5aa (docs: add Haptric local testing guide)
 
 ## Completion Report Commit
 
@@ -86,8 +86,8 @@ Use this guide to run and record the final judge rehearsal; do not begin another
 
 ## GitHub Verification
 
-- pushed branch: PENDING
-- implementation SHA: PENDING
+- pushed branch: `docs/local-testing-guide`
+- implementation SHA: `b93d5aa` (full SHA will be recorded after verification)
 - completion-report SHA: PENDING
 - final remote SHA: PENDING
 - canonical repository: https://github.com/aurtxx/haptric
