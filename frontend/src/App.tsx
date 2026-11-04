@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { httpApi, HttpApiError } from './api'
-import type { ApiAttempt, ApiAttemptReview, ApiError, ApiExam, ApiResult, ApiStudent, AuthenticatedUser, Role } from './types'
+import type { ApiAttempt, ApiAttemptReview, ApiError, ApiExam, ApiResult, ApiStudent, ApiSyncStatus, AuthenticatedUser, Role } from './types'
 
 type Screen = 'overview' | 'studio' | 'students' | 'exam' | 'results'
 
@@ -27,6 +27,9 @@ function App() {
   const [adminAttempts, setAdminAttempts] = useState<ApiAttempt[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState<ApiError | null>(null)
+  const [syncStatus, setSyncStatus] = useState<ApiSyncStatus | null>(null)
+  const [syncStatusLoading, setSyncStatusLoading] = useState(false)
+  const [syncStatusError, setSyncStatusError] = useState('')
   const [message, setMessage] = useState('')
 
   const role: Role | null = user ? user.role === 'student' ? 'student' : 'admin' : null
@@ -46,9 +49,9 @@ function App() {
     setAdminError(null)
     try {
       const [nextExams, nextStudents, nextAttempts] = await Promise.all([httpApi.getExams(), httpApi.getStudents(), httpApi.getAttempts()])
-      setAdminExams(nextExams)
-      setStudents(nextStudents)
-      setAdminAttempts(nextAttempts)
+      setAdminExams(Array.isArray(nextExams) ? nextExams : [])
+      setStudents(Array.isArray(nextStudents) ? nextStudents : [])
+      setAdminAttempts(Array.isArray(nextAttempts) ? nextAttempts : [])
     } catch (error: unknown) {
       setAdminError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
     } finally {
@@ -76,6 +79,18 @@ function App() {
       setStudentError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
     } finally {
       setStudentLoading(false)
+    }
+  }
+
+  const refreshSyncStatus = async () => {
+    setSyncStatusLoading(true)
+    setSyncStatusError('')
+    try {
+      setSyncStatus(await httpApi.getSyncStatus())
+    } catch (error: unknown) {
+      setSyncStatusError(error instanceof HttpApiError ? error.message : 'Sync status is unavailable right now.')
+    } finally {
+      setSyncStatusLoading(false)
     }
   }
 
@@ -175,7 +190,7 @@ function App() {
       {message && <div className="notice" role="status">{message}<button onClick={() => setMessage('')} aria-label="Dismiss message">×</button></div>}
       {adminError && role === 'admin' && <div className="notice" role="alert">{adminError.message}<button className="text-button" onClick={() => void refreshAdmin()}>Retry</button></div>}
       {studentError && role === 'student' && <div className="notice" role="alert">{studentError.message}<button className="text-button" onClick={() => void refreshStudent()}>Retry</button></div>}
-      {role === 'admin' && screen === 'overview' && <AdminOverview exams={adminExams} students={students} attempts={adminAttempts} loading={adminLoading} onOpen={() => setScreen('studio')} onRefresh={refreshAdmin} />}
+      {role === 'admin' && screen === 'overview' && <AdminOverview exams={adminExams} students={students} attempts={adminAttempts} loading={adminLoading} onOpen={() => setScreen('studio')} onRefresh={refreshAdmin} syncStatus={syncStatus} syncStatusLoading={syncStatusLoading} syncStatusError={syncStatusError} onRefreshSyncStatus={refreshSyncStatus} />}
       {role === 'admin' && screen === 'studio' && <ExamStudio exams={adminExams} students={students} onRefresh={refreshAdmin} onMessage={setMessage} />}
       {role === 'admin' && screen === 'students' && <Students students={students} loading={adminLoading} onProvisioned={refreshAdmin} onMessage={setMessage} />}
       {role === 'admin' && screen === 'results' && <StaffResults attempts={adminAttempts} exams={adminExams} students={students} loading={adminLoading} onRefresh={refreshAdmin} />}
@@ -191,10 +206,14 @@ function Login({ onSubmit, busy, error }: { onSubmit: (username: string, passwor
   return <main className="login-page"><section className="login-card"><div className="brand-mark"><span className="brand-dot" /> northstar<span className="brand-suffix">/exams</span></div><p className="eyebrow">OPEN EXAM PLATFORM</p><h1>Make room for better questions.</h1><p className="lede">A calm, resilient exam workspace for classrooms on a LAN or in the cloud.</p>{errorMessage && <div className="notice" role="alert">{errorMessage}</div>}<form className="login-fields" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); const username = String(values.get('username') ?? '').trim(); const password = String(values.get('password') ?? ''); if (!username || !password) return; void onSubmit(username, password).finally(() => form.reset()) }}><label htmlFor="login-identity">Email or student ID<input id="login-identity" name="username" placeholder="you@school.org" autoComplete="username" required disabled={busy} /></label><label htmlFor="login-password">Password<input id="login-password" name="password" type="password" placeholder="••••••••" autoComplete="current-password" required disabled={busy} /></label><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Enter workspace'}</button></form><small className="muted">Your password is sent only to Django over the configured development connection. The session is kept in an HttpOnly browser cookie.</small></section><aside className="login-aside"><span className="index-number">01</span><p>Local-first by design.</p><p className="muted">Keep an exam running when the internet cannot.</p></aside></main>
 }
 
-function AdminOverview({ exams, students, attempts, loading, onOpen, onRefresh }: { exams: ApiExam[]; students: ApiStudent[]; attempts: ApiAttempt[]; loading: boolean; onOpen: () => void; onRefresh: () => Promise<void> }) {
+function AdminOverview({ exams, students, attempts, loading, onOpen, onRefresh, syncStatus, syncStatusLoading, syncStatusError, onRefreshSyncStatus }: { exams: ApiExam[]; students: ApiStudent[]; attempts: ApiAttempt[]; loading: boolean; onOpen: () => void; onRefresh: () => Promise<void>; syncStatus: ApiSyncStatus | null; syncStatusLoading: boolean; syncStatusError: string; onRefreshSyncStatus: () => Promise<void> }) {
   const latest = exams[0]
   const questionCount = latest?.sections.reduce((total, section) => total + section.exam_questions.length, 0) ?? 0
-  return <section className="page-grid"><div className="hero-panel"><span className="eyebrow">EXAM STUDIO · REAL DATA</span><h2>One sharp loop from question to result.</h2><p>Persist drafts, link questions, publish deliberately, then assign to a learner.</p><button className="primary-button" onClick={onOpen}>Open exam studio <span aria-hidden>↗</span></button></div><div className="metric-stack"><Metric label="Active learners" value={String(students.filter((student) => student.is_active).length)} note="From Django" /><Metric label="Exams" value={String(exams.length)} note="Persisted records" /><Metric label="Published" value={String(exams.filter((item) => item.status === 'published').length)} note="Server confirmed" /><Metric label="Active attempts" value={String(attempts.filter((item) => item.status === 'in_progress').length)} note="Currently in progress" /><Metric label="Submitted attempts" value={String(attempts.filter((item) => item.status === 'submitted').length)} note="Ready for review" /></div><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">PERSISTED ASSESSMENTS</span><h3>{latest?.title ?? 'No exams yet'}</h3></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>{latest ? <div className="table-row"><span>{latest.status}</span><span>{questionCount} questions</span><span>{latest.duration_minutes} min</span><span>{latest.available_until ? 'Scheduled' : 'Open window'}</span></div> : <p className="muted">Create the first exam in Exams.</p>}</section></section>
+  return <section className="page-grid"><div className="hero-panel"><span className="eyebrow">EXAM STUDIO · REAL DATA</span><h2>One sharp loop from question to result.</h2><p>Persist drafts, link questions, publish deliberately, then assign to a learner.</p><button className="primary-button" onClick={onOpen}>Open exam studio <span aria-hidden>↗</span></button></div><div className="metric-stack"><Metric label="Active learners" value={String(students.filter((student) => student.is_active).length)} note="From Django" /><Metric label="Exams" value={String(exams.length)} note="Persisted records" /><Metric label="Published" value={String(exams.filter((item) => item.status === 'published').length)} note="Server confirmed" /><Metric label="Active attempts" value={String(attempts.filter((item) => item.status === 'in_progress').length)} note="Currently in progress" /><Metric label="Submitted attempts" value={String(attempts.filter((item) => item.status === 'submitted').length)} note="Ready for review" /></div><SyncStatusPanel status={syncStatus} loading={syncStatusLoading} error={syncStatusError} onRefresh={onRefreshSyncStatus} /><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">PERSISTED ASSESSMENTS</span><h3>{latest?.title ?? 'No exams yet'}</h3></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>{latest ? <div className="table-row"><span>{latest.status}</span><span>{questionCount} questions</span><span>{latest.duration_minutes} min</span><span>{latest.available_until ? 'Scheduled' : 'Open window'}</span></div> : <p className="muted">Create the first exam in Exams.</p>}</section></section>
+}
+
+function SyncStatusPanel({ status, loading, error, onRefresh }: { status: ApiSyncStatus | null; loading: boolean; error: string; onRefresh: () => Promise<void> }) {
+  return <section className="table-panel" aria-labelledby="sync-status-heading"><div className="panel-heading"><div><span className="eyebrow">HYBRID SYNC · STAFF ONLY</span><h3 id="sync-status-heading">Upstream delivery</h3><p className="muted">Read-only status from the node. Synchronization runs through the server command, never in the browser.</p></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Checking…' : status ? 'Refresh status' : 'Load status'}</button></div>{error && <div className="notice" role="alert">{error}</div>}{status ? <div className="table-row"><span><strong>{status.node_id}</strong><small className="muted">{status.node_role ?? 'node'}</small></span><span><strong>{status.pending_events}</strong><small className="muted">pending</small></span><span><strong>{status.failed_events}</strong><small className="muted">failed</small></span><span><strong>{status.conflict_events}</strong><small className="muted">conflicts</small></span><span><strong>{status.delivered_events}</strong><small className="muted">delivered</small></span><span><small className="muted">Last success</small><strong>{formatReviewDate(status.last_successful_sync)}</strong></span></div> : !error && <p className="muted">Load the node status to inspect pending and failed delivery.</p>}</section>
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note: string }) { return <div className="metric"><span className="eyebrow">{label}</span><strong>{value}</strong><span className="muted">{note}</span></div> }

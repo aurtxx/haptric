@@ -86,6 +86,19 @@ export interface ApiAssignment {
   assigned_at: string
 }
 
+export interface ApiSyncStatus {
+  node_id: string
+  node_role?: 'lan' | 'cloud' | string
+  upstream_configured: boolean
+  upstream_url?: string | null
+  pending_events: number
+  failed_events: number
+  conflict_events: number
+  delivered_events: number
+  last_successful_sync: string | null
+  last_error?: string | null
+}
+
 export interface ApiAnswer {
   id: number
   question: string

@@ -28,6 +28,20 @@ credentials or private records.
    show the submitted student ID, exam title, matching score, and the exact
    three question-level responses, correctness states, and marks.
 
+## 60–90 second hybrid differentiator
+
+After the connected flow is understood, keep the browser connected to the
+institute LAN node and make only the configured upstream cloud URL
+unreachable. The student can still start, answer, submit, and receive the
+LAN server-generated result. Show the staff-only sync status card with pending
+events, then restore the cloud node and run `python manage.py sync_upstream` on
+the LAN node. Open Results on the cloud node to show the synchronized attempt
+and review. Run the command once more to demonstrate that the event IDs are
+idempotent and no duplicate attempt, answers, or result are created.
+
+This is upstream outage tolerance, not a browser-offline/PWA claim. The
+student device continues to reach the local LAN Django server throughout.
+
 ## Proof points
 
 - Authentication is Django session authentication, not a role preview.

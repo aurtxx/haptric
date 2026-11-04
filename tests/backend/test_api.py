@@ -1,5 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
+import os
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -245,15 +247,32 @@ def test_schedule_window_blocks_early_start(tenant_fixture):
 @pytest.mark.django_db
 def test_sync_push_is_idempotent_and_tenant_bound(tenant_fixture):
     client = APIClient()
-    client.force_authenticate(tenant_fixture["admin"])
-    event = {"idempotency_key": "sync-1", "event_type": "student.updated", "entity_type": "student", "entity_id": "s1", "payload": {"revision": 1}}
-    first = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    second = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    assert first.status_code == second.status_code == 200
-    assert first.json() == second.json()
-    client.force_authenticate(tenant_fixture["other_admin"])
-    conflict = client.post("/api/v1/sync/push/", {"events": [event]}, format="json")
-    assert conflict.status_code == 409
+    event_id = str(uuid.uuid4())
+    event = {
+        "event_id": event_id,
+        "idempotency_key": "sync-1",
+        "event_type": "attempt.started",
+        "aggregate_type": "attempt",
+        "aggregate_id": event_id,
+        "origin_node": "lan-test",
+        "schema_version": 1,
+        "occurred_at": timezone.now().isoformat(),
+        "organization_id": str(tenant_fixture["org"].id),
+        "payload": {
+            "attempt_id": event_id,
+            "exam_id": str(tenant_fixture["exam"].id),
+            "student_id": str(tenant_fixture["student"].id),
+            "started_at": timezone.now().isoformat(),
+            "deadline_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+        },
+    }
+    with patch.dict(os.environ, {"HAPTRIC_SYNC_TOKEN": "test-sync-token", "HAPTRIC_SYNC_ORGANIZATION_ID": str(tenant_fixture["org"].id), "HAPTRIC_NODE_ID": "cloud-test"}):
+        first = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        second = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert first.status_code == second.status_code == 200, first.json()
+        assert first.json() == second.json()
+        conflict = client.post("/api/v1/sync/push/", {"organization_id": str(tenant_fixture["other_org"].id), "events": [event]}, format="json", HTTP_X_HAPTRIC_SYNC_TOKEN="test-sync-token")
+        assert conflict.status_code == 403
 
 
 @pytest.mark.django_db

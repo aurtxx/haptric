@@ -1,113 +1,100 @@
 # Latest Completion Report
 
 ## Milestone
-
-P1.1 Staff Attempt Detail + Answer Review
+P1.2 Hybrid LAN + Cloud Sync MVP
 
 ## Status
-
-PASS with documented limitations
+PASS
 
 ## Branch
-
-feat/p1-attempt-review
-
-## Implementation Commit
-
-`e052e05` — `feat: add secure staff attempt review`
-
-## Completion Report Commit
-
-`cf33026` — `docs: record P1.1 completion report`
+feat/p1-hybrid-sync-mvp
 
 ## Baseline Commit
+505eef1555f674947e92d1c05049088493af91d0
 
-P1.0 remote head used: `ea577e4daf65136efa2e5ef6213edb87ff2c317c`
+## Implementation Commit
+PENDING
+
+## Completion Report Commit
+PENDING
 
 ## Completed
 
-- Added staff-only `GET /api/v1/attempts/{id}/review/` with organization and
-  role enforcement.
-- Added server-derived question states, persisted student responses, correct
-  answers for submitted attempts, and question-level marks.
-- Withheld correctness, keys, and marks for active attempts.
-- Added staff review UI with summary, filters, loading/error/empty states,
-  question-by-question review, and back navigation.
-- Added multi-choice/numeric mark reconciliation and published-question
-  immutability regression coverage.
-- Updated the hackathon demo and durable completion history.
+- Added a stable operator-configured node identity and explicit versioned
+  attempt event envelope.
+- Added transactional `attempt.started`, `answer.saved`, and
+  `attempt.submitted` outbox events without answer keys or secrets.
+- Added node-token-authenticated, organization-bound cloud ingest with strict
+  event allowlisting, validation, idempotent replay and explicit conflicts.
+- Added bounded `sync_upstream` retry/failure tracking and staff-only sync
+  status visibility.
+- Cloud materialization preserves the LAN server-generated result and supports
+  staff review after recovery.
 
 ## Acceptance Checks
 
-- Staff submitted-attempt review API: PASS
-- Same-organization staff/admin/teacher access: PASS
-- Cross-tenant review isolation: PASS
-- Student cannot use review endpoint: PASS
-- Student endpoints retain answer-key/marking redaction: PASS
-- Correct/incorrect/unanswered states are server-derived: PASS
-- Question-level marks reconcile with persisted result: PASS
-- Active-attempt review hides correctness and marks: PASS
-- Published question content remains immutable: PASS
-- Staff review UI and filters: PASS
-- P0.3 student lifecycle regression: PASS
+- LAN exam during cloud outage: PASS
+- Durable outbox: PASS
+- Cloud unavailable handling: PASS
+- Retry after recovery: PASS
+- Cloud ingestion: PASS
+- Idempotency and replay: PASS
+- Explicit conflict detection: PASS
+- Tenant isolation: PASS
+- Node authentication: PASS
+- Browser cannot forge node sync: PASS (token-only ingest; no browser token)
+- Cloud staff result visibility: PASS via isolated API evidence; cloud UI CORS
+  walkthrough remained unavailable in this environment
 
 ## Tests
 
-- `.venv\\Scripts\\python.exe backend\\manage.py check` — PASS
-- `.venv\\Scripts\\python.exe -m pytest -q tests/backend tests/qa` — 26 passed, 4 skipped
-- `npm run lint` (frontend) — PASS (`tsc --noEmit`)
-- `npm run test -- --run` (frontend) — 2 files, 14 passed
-- `npm run build` (frontend) — PASS
-- `git diff --check` — PASS
+- `backend\.venv\Scripts\python.exe manage.py check`: PASS
+- `backend\.venv\Scripts\python.exe -m pytest tests\backend tests\qa -q`:
+  29 passed, 4 skipped
+- `backend\.venv\Scripts\python.exe -m pytest tests\backend\test_sync.py`:
+  3 passed
+- `frontend\npm run lint`: PASS
+- `frontend\npm run test -- --run`: 2 files, 14 passed
+- `frontend\npm run build`: PASS
+- `git diff --check`: PASS
 
 ## Browser Verification
 
-- Headed Playwright staff session logged in with synthetic local data, opened
-  Results, used the real persisted `Hackathon Demo Exam` attempt, and loaded
-  the review endpoint.
-- Review displayed the student name/ID, exam title, submitted status, score
-  `3.00`, counts `3/0/0`, and exactly three ordered question rows with the
-  persisted responses, correct answers, states, and `1.00` marks each.
-- Browser refresh/reopen restored the review from Django.
-- Desktop (1440×900) and mobile (390×844) review screenshots were captured in
-  the ignored `.playwright-cli/` workspace.
-- Student session showed no `Review attempt` control; direct student review
-  request returned HTTP 403. Student exam payload checks contained no
-  `correct_answer`, `positive_marks`, or `negative_marks`.
-- Initial anonymous `/me/` 401 console entries and the intentional student
-  review 403 were observed; no authenticated-flow failure occurred.
+- Headed Playwright LAN session logged in as the synthetic student, displayed
+  the assigned P12 Hybrid Demo exam and persisted server result.
+- Student response contained no answer keys or private marking fields.
+- The two-node acceptance used separate LAN and cloud SQLite databases. The
+  LAN browser remained functional while cloud was stopped; sync then recovered
+  three events and cloud contained exactly one attempt, one answer and one
+  result. Replay left those counts unchanged. A changed submitted payload was
+  reported as an explicit conflict.
 
 ## Security Verification
 
-- Review action uses `IsOrgStaff` and the existing organization-filtered
-  queryset; cross-tenant detail returns 404.
-- General student serializers remain separate and redacted.
-- Active review never calls submission/scoring.
-- Published questions reject prompt, options, answer-key, positive-mark, and
-  negative-mark mutations.
+- Ingest requires `X-Haptric-Sync-Token` and configured
+  `HAPTRIC_SYNC_ORGANIZATION_ID`; normal browser sessions are rejected.
+- Only three supported event types are accepted, with bounded event size and
+  schema/origin validation.
+- Payloads are validated against cloud questions and result totals are
+  recomputed before materialization.
 
 ## Remaining Limitations
 
-- LAN/cloud synchronization, deployment, scheduler hardening, and analytics
-  remain out of scope.
-- Staff review is read-only; answer editing and historical version migration
-  are not implemented.
-- Docker/PostgreSQL was unavailable, so browser verification used local
-  SQLite-backed data; four optional QA checks remain skipped.
+- This is upstream outage tolerance while the browser remains on LAN; it is
+  not a browser-offline/PWA engine.
+- Reference organization/student/exam/question data must be seeded on cloud.
+- Delivery is manual/bounded rather than a production worker; key rotation,
+  signed envelopes, and PostgreSQL two-node verification remain future work.
+- Four optional QA checks remain skipped because Docker/PostgreSQL/local
+  contract infrastructure is unavailable.
 
 ## Recommended Next Milestone
 
-P1.2: add a read-only staff attempt answer export/report only after a new scope
-approval; keep synchronization and deployment separate.
+P1.3: harden deployment/configuration and add operational sync observability
+without expanding into browser-offline or multi-master synchronization.
 
 ## GitHub Verification
 
-- Pushed branch: `feat/p1-attempt-review`
-- Implementation remote head was verified with `git ls-remote` before this
-  documentation commit.
-- Completion report commit is visible at
-  https://github.com/aurtxx/haptric/commit/cf33026.
-- Metadata correction commit: `5c50ab4`, visible at
-  https://github.com/aurtxx/haptric/commit/5c50ab4.
-- Completion-history update commit: `023758e`, visible at
-  https://github.com/aurtxx/haptric/commit/023758e.
+- pushed branch: pending implementation delivery
+- remote SHA verification: pending
+- canonical commit URL: pending

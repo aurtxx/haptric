@@ -148,6 +148,11 @@ class AuditEvent(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 class SyncOutbox(models.Model):
+    class DeliveryStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        DELIVERED = "delivered", "Delivered"
+        FAILED = "failed", "Failed"
+        CONFLICT = "conflict", "Conflict"
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="sync_outbox")
     event_type = models.CharField(max_length=100)
@@ -158,4 +163,10 @@ class SyncOutbox(models.Model):
     attempts = models.PositiveIntegerField(default=0)
     available_at = models.DateTimeField(default=timezone.now)
     processed_at = models.DateTimeField(null=True, blank=True)
+    origin_node = models.CharField(max_length=120, default="local")
+    schema_version = models.PositiveIntegerField(default=1)
+    occurred_at = models.DateTimeField(default=timezone.now)
+    delivery_status = models.CharField(max_length=16, choices=DeliveryStatus.choices, default=DeliveryStatus.PENDING)
+    last_error = models.CharField(max_length=500, blank=True, default="")
+    delivered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

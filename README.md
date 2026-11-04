@@ -21,7 +21,14 @@ npm install
 npm run dev -- --host 127.0.0.1
 ```
 
-Open `http://127.0.0.1:5173/`. The current UI includes safe admin and student previews backed by a local mock adapter; the Django API contract is implemented and tested independently. No credentials are required for the preview controls.
+Open `http://127.0.0.1:5173/`. The application uses Django session authentication and real API-backed admin/student workflows. Create disposable local users through the documented provisioning API; never commit their passwords.
+
+For a LAN node, configure `HAPTRIC_NODE_ID`, `HAPTRIC_NODE_ROLE=lan`,
+`HAPTRIC_SYNC_URL`, `HAPTRIC_SYNC_TOKEN`, and
+`HAPTRIC_SYNC_ORGANIZATION_ID` in the process environment. The cloud node
+uses its own node ID/role and the same organization reference data. Run
+`python backend/manage.py sync_upstream` from the LAN process environment to
+deliver pending attempt events; the browser never holds the sync token.
 
 ## Docker Compose
 
