@@ -151,9 +151,30 @@ class ResultSerializer(serializers.ModelSerializer):
 class AttemptSerializer(serializers.ModelSerializer):
     answers = AnswerSerializer(many=True, read_only=True)
     result = serializers.SerializerMethodField()
+    # These display fields make the organization-scoped staff review payload
+    # useful without requiring the client to issue one request per relation.
+    # They are intentionally read-only and contain no scoring or answer-key
+    # data. Students can only receive their own attempt rows (see the viewset
+    # queryset), so exposing the labels does not widen student access.
+    student_name = serializers.CharField(source="student.name", read_only=True)
+    student_id = serializers.CharField(source="student.student_id", read_only=True)
+    exam_title = serializers.CharField(source="exam.title", read_only=True)
     class Meta:
         model = Attempt
-        fields = ["id", "exam", "student", "status", "started_at", "deadline_at", "submitted_at", "answers", "result"]
+        fields = [
+            "id",
+            "exam",
+            "exam_title",
+            "student",
+            "student_name",
+            "student_id",
+            "status",
+            "started_at",
+            "deadline_at",
+            "submitted_at",
+            "answers",
+            "result",
+        ]
         read_only_fields = fields
     def get_result(self, obj):
         return ResultSerializer(obj.result).data if hasattr(obj, "result") else None

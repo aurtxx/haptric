@@ -226,7 +226,16 @@ class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AttemptSerializer
     permission_classes = [IsOrgMember]
     def get_queryset(self):
-        qs = Attempt.objects.filter(exam__organization_id=self.request.user.organization_id).select_related("result")
+        # Staff review is organization-scoped. Keep all related display data
+        # in this query so the review list does not perform per-row lookups.
+        qs = Attempt.objects.filter(
+            exam__organization_id=self.request.user.organization_id,
+        ).select_related(
+            "exam",
+            "student",
+            "student__user",
+            "result",
+        ).prefetch_related("answers")
         if self.request.user.role == User.Roles.STUDENT:
             qs = qs.filter(student__user=self.request.user)
         return qs

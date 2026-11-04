@@ -68,6 +68,56 @@ def test_attempt_start_answer_and_idempotent_submit(tenant_fixture):
 
 
 @pytest.mark.django_db
+def test_staff_attempt_review_is_org_scoped_and_includes_safe_result_summary(tenant_fixture):
+    """Staff can review same-tenant attempts without receiving answer keys."""
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"],
+        student=tenant_fixture["student"],
+        status=Attempt.Status.SUBMITTED,
+        started_at=timezone.now() - timedelta(minutes=5),
+        deadline_at=timezone.now() - timedelta(minutes=1),
+        submitted_at=timezone.now(),
+        idempotency_key="staff-review-attempt",
+    )
+    Result.objects.create(
+        attempt=attempt,
+        score=Decimal("3.00"),
+        correct_count=1,
+        incorrect_count=0,
+        unanswered_count=0,
+    )
+
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    response = client.get("/api/v1/attempts/")
+
+    assert response.status_code == 200
+    payload = next(item for item in response.json() if item["id"] == str(attempt.id))
+    assert payload["student_name"] == "Maya"
+    assert payload["student_id"] == "MAYA-1"
+    assert payload["exam_title"] == "Foundations"
+    assert payload["status"] == Attempt.Status.SUBMITTED
+    assert payload["started_at"] is not None
+    assert payload["submitted_at"] is not None
+    assert payload["result"] == {
+        "score": "3.00",
+        "correct_count": 1,
+        "incorrect_count": 0,
+        "unanswered_count": 0,
+        "calculated_at": payload["result"]["calculated_at"],
+    }
+    # Attempt review must remain a safe summary; answer keys are never part
+    # of the attempt/result representation.
+    assert "correct_answer" not in payload
+    assert "positive_marks" not in payload
+    assert "negative_marks" not in payload
+
+    client.force_authenticate(tenant_fixture["other_admin"])
+    assert client.get("/api/v1/attempts/").json() == []
+    assert client.get(f"/api/v1/attempts/{attempt.id}/").status_code == 404
+
+
+@pytest.mark.django_db
 def test_schedule_window_blocks_early_start(tenant_fixture):
     tenant_fixture["exam"].available_from = timezone.now() + timedelta(minutes=5)
     tenant_fixture["exam"].save(update_fields=["available_from"])

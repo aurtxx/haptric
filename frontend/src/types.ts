@@ -104,7 +104,10 @@ export interface ApiResult {
 export interface ApiAttempt {
   id: string
   exam: string
+  exam_title?: string
   student: string
+  student_name?: string
+  student_id?: string
   status: 'in_progress' | 'submitted'
   started_at: string
   deadline_at: string

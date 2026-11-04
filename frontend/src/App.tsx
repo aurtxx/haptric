@@ -5,8 +5,8 @@ import type { ApiAttempt, ApiError, ApiExam, ApiResult, ApiStudent, Authenticate
 type Screen = 'overview' | 'studio' | 'students' | 'exam' | 'results'
 
 const navFor = (role: Role): { id: Screen; label: string; hint: string }[] => role === 'admin'
-  ? [{ id: 'overview', label: 'Workspace', hint: 'Today at a glance' }, { id: 'studio', label: 'Exam studio', hint: 'Author and preview' }, { id: 'students', label: 'Learners', hint: 'Roster and access' }]
-  : [{ id: 'overview', label: 'My desk', hint: 'Assigned learning' }, { id: 'exam', label: 'Practice exam', hint: 'One active attempt' }, { id: 'results', label: 'Results', hint: 'Feedback and marks' }]
+  ? [{ id: 'overview', label: 'Overview', hint: 'Today at a glance' }, { id: 'studio', label: 'Exams', hint: 'Author and publish' }, { id: 'students', label: 'Students', hint: 'Roster and access' }, { id: 'results', label: 'Results', hint: 'Attempts and scores' }]
+  : [{ id: 'overview', label: 'My exams', hint: 'Assigned learning' }, { id: 'exam', label: 'Current attempt', hint: 'Resume and answer' }, { id: 'results', label: 'Results', hint: 'Server feedback' }]
 
 function App() {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
@@ -24,6 +24,7 @@ function App() {
   const [studentBusy, setStudentBusy] = useState(false)
   const [adminExams, setAdminExams] = useState<ApiExam[]>([])
   const [students, setStudents] = useState<ApiStudent[]>([])
+  const [adminAttempts, setAdminAttempts] = useState<ApiAttempt[]>([])
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState<ApiError | null>(null)
   const [message, setMessage] = useState('')
@@ -44,9 +45,10 @@ function App() {
     setAdminLoading(true)
     setAdminError(null)
     try {
-      const [nextExams, nextStudents] = await Promise.all([httpApi.getExams(), httpApi.getStudents()])
+      const [nextExams, nextStudents, nextAttempts] = await Promise.all([httpApi.getExams(), httpApi.getStudents(), httpApi.getAttempts()])
       setAdminExams(nextExams)
       setStudents(nextStudents)
+      setAdminAttempts(nextAttempts)
     } catch (error: unknown) {
       setAdminError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
     } finally {
@@ -109,6 +111,7 @@ function App() {
       setStudentExams([])
       setStudentAttempts([])
       setStudentResult(null)
+      setAdminAttempts([])
       setScreen('overview')
     } catch (error: unknown) {
       setAuthError(error instanceof HttpApiError ? error : { kind: 'network', message: 'The server is unavailable right now. Please try again.' })
@@ -168,13 +171,14 @@ function App() {
       <div className="sidebar-footer"><span className="status-dot" /> LAN node ready <button className="text-button" onClick={signOut} disabled={authBusy}>{authBusy ? 'Signing out…' : 'Sign out'}</button></div>
     </aside>
     <main className="content">
-      <header className="topbar"><div><span className="eyebrow">{role === 'admin' ? 'ADMIN CONSOLE' : 'STUDENT DESK'}</span><h1>{screen === 'studio' ? 'Build a clear assessment.' : screen === 'exam' ? 'Take your time.' : screen === 'results' ? 'See what stuck.' : `Welcome, ${user.username}.`}</h1></div><div className="topbar-meta"><span className="sync-state">● Session active</span><button className="avatar" aria-label={`Signed in as ${user.username}`}>{user.username.slice(0, 2).toUpperCase()}</button></div></header>
+      <header className="topbar"><div><span className="eyebrow">{role === 'admin' ? 'STAFF CONSOLE' : 'STUDENT DESK'}</span><h1>{screen === 'studio' ? 'Build a clear assessment.' : screen === 'exam' ? 'Take your time.' : screen === 'results' ? role === 'admin' ? 'Review every attempt.' : 'See what stuck.' : `Welcome, ${user.username}.`}</h1></div><div className="topbar-meta"><span className="sync-state">● Session active</span><button className="avatar" aria-label={`Signed in as ${user.username}`}>{user.username.slice(0, 2).toUpperCase()}</button></div></header>
       {message && <div className="notice" role="status">{message}<button onClick={() => setMessage('')} aria-label="Dismiss message">×</button></div>}
       {adminError && role === 'admin' && <div className="notice" role="alert">{adminError.message}<button className="text-button" onClick={() => void refreshAdmin()}>Retry</button></div>}
       {studentError && role === 'student' && <div className="notice" role="alert">{studentError.message}<button className="text-button" onClick={() => void refreshStudent()}>Retry</button></div>}
-      {role === 'admin' && screen === 'overview' && <AdminOverview exams={adminExams} students={students} loading={adminLoading} onOpen={() => setScreen('studio')} onRefresh={refreshAdmin} />}
+      {role === 'admin' && screen === 'overview' && <AdminOverview exams={adminExams} students={students} attempts={adminAttempts} loading={adminLoading} onOpen={() => setScreen('studio')} onRefresh={refreshAdmin} />}
       {role === 'admin' && screen === 'studio' && <ExamStudio exams={adminExams} students={students} onRefresh={refreshAdmin} onMessage={setMessage} />}
       {role === 'admin' && screen === 'students' && <Students students={students} loading={adminLoading} onProvisioned={refreshAdmin} onMessage={setMessage} />}
+      {role === 'admin' && screen === 'results' && <StaffResults attempts={adminAttempts} exams={adminExams} students={students} loading={adminLoading} onRefresh={refreshAdmin} />}
       {role === 'student' && screen === 'overview' && <StudentOverview exams={studentExams} selectedExamId={selectedStudentExam?.id ?? ''} onSelect={setSelectedStudentExamId} attempt={attempt} onStart={startExam} busy={studentBusy} />}
       {role === 'student' && screen === 'exam' && selectedStudentExam && attempt && <ExamRunner exam={selectedStudentExam} attempt={attempt} onChange={setAttempt} onSubmit={submit} busy={studentBusy} />}
       {role === 'student' && screen === 'results' && selectedStudentExam && <Results exam={selectedStudentExam} attempt={attempt} result={studentResult} onStart={startExam} busy={studentBusy} />}
@@ -187,13 +191,23 @@ function Login({ onSubmit, busy, error }: { onSubmit: (username: string, passwor
   return <main className="login-page"><section className="login-card"><div className="brand-mark"><span className="brand-dot" /> northstar<span className="brand-suffix">/exams</span></div><p className="eyebrow">OPEN EXAM PLATFORM</p><h1>Make room for better questions.</h1><p className="lede">A calm, resilient exam workspace for classrooms on a LAN or in the cloud.</p>{errorMessage && <div className="notice" role="alert">{errorMessage}</div>}<form className="login-fields" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); const username = String(values.get('username') ?? '').trim(); const password = String(values.get('password') ?? ''); if (!username || !password) return; void onSubmit(username, password).finally(() => form.reset()) }}><label htmlFor="login-identity">Email or student ID<input id="login-identity" name="username" placeholder="you@school.org" autoComplete="username" required disabled={busy} /></label><label htmlFor="login-password">Password<input id="login-password" name="password" type="password" placeholder="••••••••" autoComplete="current-password" required disabled={busy} /></label><button className="primary-button" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Enter workspace'}</button></form><small className="muted">Your password is sent only to Django over the configured development connection. The session is kept in an HttpOnly browser cookie.</small></section><aside className="login-aside"><span className="index-number">01</span><p>Local-first by design.</p><p className="muted">Keep an exam running when the internet cannot.</p></aside></main>
 }
 
-function AdminOverview({ exams, students, loading, onOpen, onRefresh }: { exams: ApiExam[]; students: ApiStudent[]; loading: boolean; onOpen: () => void; onRefresh: () => Promise<void> }) {
+function AdminOverview({ exams, students, attempts, loading, onOpen, onRefresh }: { exams: ApiExam[]; students: ApiStudent[]; attempts: ApiAttempt[]; loading: boolean; onOpen: () => void; onRefresh: () => Promise<void> }) {
   const latest = exams[0]
   const questionCount = latest?.sections.reduce((total, section) => total + section.exam_questions.length, 0) ?? 0
-  return <section className="page-grid"><div className="hero-panel"><span className="eyebrow">EXAM STUDIO · REAL DATA</span><h2>One sharp loop from question to result.</h2><p>Persist drafts, link questions, publish deliberately, then assign to a learner.</p><button className="primary-button" onClick={onOpen}>Open exam studio <span aria-hidden>↗</span></button></div><div className="metric-stack"><Metric label="Active learners" value={String(students.filter((student) => student.is_active).length)} note="From Django" /><Metric label="Exams" value={String(exams.length)} note="Persisted records" /><Metric label="Published" value={String(exams.filter((item) => item.status === 'published').length)} note="Server confirmed" /></div><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">PERSISTED ASSESSMENTS</span><h3>{latest?.title ?? 'No exams yet'}</h3></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>{latest ? <div className="table-row"><span>{latest.status}</span><span>{questionCount} questions</span><span>{latest.duration_minutes} min</span><span>{latest.available_until ? 'Scheduled' : 'Open window'}</span></div> : <p className="muted">Create the first exam in Exam studio.</p>}</section></section>
+  return <section className="page-grid"><div className="hero-panel"><span className="eyebrow">EXAM STUDIO · REAL DATA</span><h2>One sharp loop from question to result.</h2><p>Persist drafts, link questions, publish deliberately, then assign to a learner.</p><button className="primary-button" onClick={onOpen}>Open exam studio <span aria-hidden>↗</span></button></div><div className="metric-stack"><Metric label="Active learners" value={String(students.filter((student) => student.is_active).length)} note="From Django" /><Metric label="Exams" value={String(exams.length)} note="Persisted records" /><Metric label="Published" value={String(exams.filter((item) => item.status === 'published').length)} note="Server confirmed" /><Metric label="Active attempts" value={String(attempts.filter((item) => item.status === 'in_progress').length)} note="Currently in progress" /><Metric label="Submitted attempts" value={String(attempts.filter((item) => item.status === 'submitted').length)} note="Ready for review" /></div><section className="table-panel"><div className="panel-heading"><div><span className="eyebrow">PERSISTED ASSESSMENTS</span><h3>{latest?.title ?? 'No exams yet'}</h3></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button></div>{latest ? <div className="table-row"><span>{latest.status}</span><span>{questionCount} questions</span><span>{latest.duration_minutes} min</span><span>{latest.available_until ? 'Scheduled' : 'Open window'}</span></div> : <p className="muted">Create the first exam in Exams.</p>}</section></section>
 }
 
 function Metric({ label, value, note }: { label: string; value: string; note: string }) { return <div className="metric"><span className="eyebrow">{label}</span><strong>{value}</strong><span className="muted">{note}</span></div> }
+
+function formatReviewDate(value: string | null) {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+}
+
+function StaffResults({ attempts, exams, students, loading, onRefresh }: { attempts: ApiAttempt[]; exams: ApiExam[]; students: ApiStudent[]; loading: boolean; onRefresh: () => Promise<void> }) {
+  return <section className="table-panel"><div className="section-heading"><div><span className="eyebrow">RESULTS · ORGANIZATION SCOPED</span><h2>Review every attempt.</h2><p className="muted">Scores and statuses below are read from Django. Answer keys stay staff-only.</p></div><button className="secondary-button" onClick={() => void onRefresh()} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh results'}</button></div>{loading && <p className="muted" role="status">Loading attempts…</p>}{!loading && attempts.length === 0 && <div className="empty-state"><h3>No attempts yet.</h3><p className="muted">When a learner submits an assigned exam, the result will appear here.</p></div>}{!loading && attempts.length > 0 && <><div className="table-row table-head" aria-hidden="true"><span>Learner</span><span>Exam</span><span>Status</span><span>Result</span></div>{attempts.map((attempt) => { const exam = exams.find((item) => item.id === attempt.exam); const student = students.find((item) => item.id === attempt.student); const result = attempt.result; return <div className="table-row" key={attempt.id}><span><strong>{attempt.student_name ?? student?.name ?? 'Learner'}</strong><small className="muted">{attempt.student_id ?? student?.student_id ?? attempt.student}</small></span><span><strong>{attempt.exam_title ?? exam?.title ?? 'Exam'}</strong><small className="muted">Started {formatReviewDate(attempt.started_at)}</small></span><span><span className={`status-chip ${attempt.status === 'submitted' ? 'status-success' : ''}`}>{attempt.status === 'submitted' ? 'Submitted' : 'In progress'}</span><small className="muted">{attempt.submitted_at ? formatReviewDate(attempt.submitted_at) : 'Not submitted'}</small></span><span>{result ? <><strong>{result.score}</strong><small className="muted">{result.correct_count} correct · {result.incorrect_count} incorrect · {result.unanswered_count} unanswered</small></> : <small className="muted">Awaiting submission</small>}</span></div> })}</>}</section>
+}
 
 type QuestionDraft = { prompt: string; options: string; correct_answer: string; positive_marks: string; negative_marks: string }
 const defaultQuestionDrafts: QuestionDraft[] = [

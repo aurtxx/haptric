@@ -19,6 +19,7 @@ describe('App session boundary', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
@@ -26,6 +27,26 @@ describe('App session boundary', () => {
     expect(await screen.findByText('Welcome, admin.')).toBeTruthy()
     expect(screen.getByText('admin · Org org-1')).toBeTruthy()
     expect(fetchMock.mock.calls[0][0]).toContain('/me/')
+    expect(screen.getByRole('button', { name: /Results/ })).toBeTruthy()
+    expect(screen.getByText('Active attempts')).toBeTruthy()
+  })
+
+  it('shows organization-scoped staff attempt results from Django', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'exam-1', title: 'Demo Exam', duration_minutes: 30, available_from: null, available_until: null, status: 'published', published_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z', sections: [] }]))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'student-1', name: 'Hackathon Student', student_id: 'HACK-001', is_active: true, created_at: '2026-01-01T00:00:00Z' }]))
+      .mockResolvedValueOnce(jsonResponse([{ id: 'attempt-1', exam: 'exam-1', student: 'student-1', status: 'submitted', started_at: '2026-01-01T00:00:00Z', deadline_at: '2026-01-01T00:30:00Z', submitted_at: '2026-01-01T00:10:00Z', answers: [], result: { score: '8.00', correct_count: 8, incorrect_count: 1, unanswered_count: 1, calculated_at: '2026-01-01T00:10:00Z' } }]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+
+    await screen.findByText('Welcome, admin.')
+    fireEvent.click(screen.getByRole('button', { name: /Results/ }))
+    expect(await screen.findByRole('heading', { name: 'Review every attempt.', level: 2 })).toBeTruthy()
+    expect(screen.getByText('Hackathon Student')).toBeTruthy()
+    expect(screen.getByText('HACK-001')).toBeTruthy()
+    expect(screen.getByText('8.00')).toBeTruthy()
   })
 
   it('shows invalid credentials without entering a role preview', async () => {
@@ -53,6 +74,7 @@ describe('App session boundary', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'u1', username: 'admin', role: 'admin', organization: 'org-1' }))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ csrfToken: 'csrf-logout' }))
       .mockResolvedValueOnce(jsonResponse({ status: 'ok' }))
     vi.stubGlobal('fetch', fetchMock)
@@ -67,7 +89,7 @@ describe('App session boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
     await screen.findByRole('button', { name: 'Enter workspace' })
     expect(fetchMock.mock.calls[2][0]).toContain('/auth/login/')
-    expect(fetchMock.mock.calls[7][0]).toContain('/auth/logout/')
+    expect(fetchMock.mock.calls[8][0]).toContain('/auth/logout/')
   })
 
   it('shows a recoverable server-unavailable state when session lookup fails', async () => {
