@@ -52,6 +52,24 @@ npm run dev -- --host 127.0.0.1
 
 Open `http://127.0.0.1:5173/`. Create disposable local users through the provisioning API or the hybrid demo seed script; never commit their passwords.
 
+## Test Haptric locally
+
+For verified browser pages, API paths, disposable demo accounts, the normal
+staff/student walkthrough, and the LAN/Cloud outage rehearsal, see
+[docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md).
+
+Shortest demo setup:
+
+```powershell
+$env:HAPTRIC_DEMO_PASSWORD = 'choose-a-local-only-password'
+$env:HAPTRIC_SYNC_TOKEN = 'choose-a-local-only-token'
+.\tools\demo\setup-hybrid-demo.ps1
+.\tools\demo\seed-hybrid-demo.ps1
+```
+
+Then start the LAN backend with `tools\demo\start-lan.ps1`, start the Vite
+frontend on port 5173, and open `http://127.0.0.1:5173/`.
+
 ## Hybrid demo
 
 The complete judge runbook is in [docs/HACKATHON_DEMO.md](docs/HACKATHON_DEMO.md). The reproducible PowerShell scripts in `tools/demo/` create separate disposable SQLite databases:

@@ -2,100 +2,92 @@
 
 ## Milestone
 
-P1.4 Final Hackathon Release + Judge Rehearsal
+P1.5 Local Testing Guide
 
 ## Status
 
-PASS
+PASS with documentation-only limitations
 
 ## Branch
 
-release/hackathon-final
+docs/local-testing-guide
 
-## Baseline Commit
+## Baseline
 
-e968c802daa0afb64b18080acbce37f883106d80
+024e1fbdbd2f35d301d63042c598f4de4ea6b4ce (verified local `main` and `origin/main` baseline)
 
-## Implementation/Release Commit
+## Implementation Commit
 
-97cbd7c6660d0c11b119da7439c6b4ec1c9fccef
+PENDING
 
 ## Completion Report Commit
 
-0336f5ead620337b0b596357710c0e912e2d83cc
+PENDING
 
 ## Final Remote Head
 
-0336f5ead620337b0b596357710c0e912e2d83cc (metadata pin; final branch head is independently verified in the delivery response)
+PENDING
 
 ## Completed
 
-- Canonical Haptric branding replaced stale OpenExam/Northstar judge-facing copy.
-- Login, navigation, exam player, results, and sync status copy now explain the product without implying browser-offline behavior.
-- Added visible keyboard focus states and ensured staff mobile navigation exposes all destinations.
-- Fixed credentialed CORS preflight for the `Idempotency-Key` required by real attempt start.
-- Rewrote README as a hackathon landing page with architecture diagram, standard setup, hybrid demo, security model, and limitations.
-- Added a timed judge script, fast recovery guide, judge FAQ, and release checklist.
+- Added `docs/LOCAL_TESTING.md` with PowerShell-first normal and hybrid startup instructions.
+- Verified and documented the actual SPA screen model: browser URL remains `/` while role-aware navigation changes the screen.
+- Documented current frontend, backend health, API proxy, Cloud frontend and Cloud backend URLs without inventing routes.
+- Documented the exact disposable seed identifiers: `demo-staff`, `demo-student`, `HYBRID-001`, `Hybrid Demo Exam`, and `Haptric Hybrid Demo`.
+- Documented authentication and server-to-server sync boundaries without storing or printing passwords or sync tokens.
+- Added simple staff → student → result walkthrough, two-node outage/recovery sequence, role matrix, seeded data expectations, troubleshooting references and safe reset instructions.
+- Added a README entry point under **Test Haptric locally**.
+- Updated `docs/TASKS.md` with P1.5 ownership, status and verification expectations.
 
 ## Acceptance Checks
 
-- Branding consistency: PASS
-- Visual QA at 1440x900, 1280x720, and 390x844: PASS; headed screenshots captured and inspected
-- Accessibility/focus/mobile navigation: PASS for release-critical checks
-- Fresh standard setup documentation: PASS by documented commands and local checks
-- Hybrid setup/seed/check/reset: PASS
-- LAN exam during Cloud outage: PASS
-- Recovery sync and Cloud UI review: PASS
-- Idempotent replay: PASS; one attempt, three answers, one result after replay
-- Security regression: PASS
-- README, judge script, recovery guide, FAQ: PASS
+- Current `main` inspected before edits: PASS
+- Canonical origin inspected: PASS (`https://github.com/aurtxx/haptric.git`)
+- Functional URLs derived from source: PASS
+- Demo accounts match seed script: PASS
+- No secrets or credentials added: PASS
+- Normal and hybrid PowerShell commands documented: PASS
+- Safe reset scope documented: PASS
+- Application code changed: NO (documentation-only milestone)
 
 ## Tests
 
-- `.venv\\Scripts\\python.exe backend\\manage.py check`: PASS
-- `.venv\\Scripts\\python.exe -m pytest tests\\backend tests\\qa -q`: 35 passed, 4 skipped
-- `.venv\\Scripts\\python.exe -m pytest tests\\backend\\test_sync.py tests\\backend\\test_security_config.py -q`: 9 passed
-- `frontend\\npm run lint`: PASS
-- `frontend\\npm run test -- --run`: 2 files, 14 passed
-- `frontend\\npm run build`: PASS
-- PowerShell demo parser: `POWERSHELL_PARSE_OK`
-- Demo setup/seed/check/reset smoke: PASS
+- Django check: `.venv\Scripts\python.exe backend\manage.py check` — PASS (`System check identified no issues`)
+- Backend/QA tests: `.venv\Scripts\python.exe -m pytest tests\backend tests\qa -q` — PASS (35 passed, 4 skipped)
+- Frontend lint/typecheck: `frontend\npm run lint` — PASS
+- Frontend tests: `frontend\npm run test -- --run` — PASS (2 files, 14 tests)
+- Frontend production build: `frontend\npm run build` — PASS
+- PowerShell demo parser: all `tools\demo\*.ps1` parsed — PASS (`POWERSHELL_PARSE_OK`)
+- Demo setup/seed/check/reset smoke: `setup-hybrid-demo.ps1`, `seed-hybrid-demo.ps1`, `hybrid-demo-check.ps1`, `reset-hybrid-demo.ps1` — PASS (`DEMO_SMOKE_OK`)
+- URL response checks: backend `/api/health/` 200; Vite `/` 200 with Haptric title; Vite `/api/health/` proxy 200 — PASS
 - `git diff --check`: PASS
 
 ## Browser Verification
 
-- Headed LAN and Cloud sessions used separate synthetic local accounts and separate SQLite databases.
-- Staff login and dashboard loaded real Django metrics and the Cloud continuity panel.
-- Student login, assigned exam, start, Q1/Q2 answer persistence, refresh restoration, Q3 submission, and server result were verified.
-- Cloud outage retained five pending events; recovery sync accepted five events.
-- Cloud staff Results and Review displayed the synchronized score, responses, correctness, and marks.
-- Replay left Cloud at exactly one attempt, three answers, and one result.
-- Mobile review at 390x844 and desktop review at 1280x720 were inspected; login was captured at 1440x900.
-- Initial anonymous 401 console entries were expected session checks; no functional post-login console error blocked the flow.
+No new headed browser walkthrough was performed for this documentation-only milestone. URLs and screen names were verified against the current React source, Vite configuration, Django URL configuration, and demo scripts. Live HTTP checks used the local Django and Vite processes and returned the statuses recorded above. Browser claims remain limited to the previously verified P1.4 rehearsal.
 
-## Security Verification
+## Security Check
 
-- Session authentication, CSRF, organization isolation, answer-key redaction, staff review authorization, node token server-only handling, schema validation, replay, conflict, and published-question integrity remained verified.
-- CORS uses explicit allow-listed origins and now permits the required `Idempotency-Key` preflight without wildcard credentialed access.
-- No secrets, cookies, auth state, local databases, screenshots, or generated artifacts were staged.
+- No passwords, tokens, cookies, API keys, `.env` files, database files, browser auth state, or private records were added.
+- The guide explicitly keeps `HAPTRIC_DEMO_PASSWORD` and `HAPTRIC_SYNC_TOKEN` in the caller's environment.
+- The sync token is documented as server-to-server only and never a browser/API client credential.
 
-## Remaining Limitations
+## Known Limitations
 
-- Browser-offline/PWA is not implemented; the browser must reach LAN Django.
-- Cloud reference data is seeded/provisioned separately for the demo.
-- Sync is a bounded manual command, not a production scheduler.
-- PostgreSQL/Docker two-node runtime was unavailable.
-- Production token rotation, signed envelopes, rate limiting, and monitoring remain future work.
-- Official hackathon rules, judging rubric, deadline, and submission URL remain unknown until supplied by the organizer.
+- The guide does not create accounts; run the existing seed script with a local-only password.
+- The browser must reach the LAN Django node; this is not browser-offline/PWA mode.
+- Two-node local verification uses separate SQLite stores; PostgreSQL/Docker are not claimed here.
+- The current React application is a single SPA without distinct browser paths for each screen.
+- Official hackathon rules, deadline and submission URL remain unknown until supplied by the organizer.
 
-## Recommended Next Action
+## Recommended Next Milestone
 
-SUBMIT / RECORD DEMO after adding verified official event metadata and the final presentation artifact.
+Use this guide to run and record the final judge rehearsal; do not begin another engineering milestone unless the rehearsal identifies a release blocker.
 
 ## GitHub Verification
 
-- pushed branch: `release/hackathon-final`
-- release SHA: `97cbd7c6660d0c11b119da7439c6b4ec1c9fccef`
-- completion-report SHA: `0336f5ead620337b0b596357710c0e912e2d83cc`
-- final remote SHA verified before this metadata-only update: `0336f5ead620337b0b596357710c0e912e2d83cc`
-- canonical commit URL: https://github.com/aurtxx/haptric/commit/97cbd7c6660d0c11b119da7439c6b4ec1c9fccef
+- pushed branch: PENDING
+- implementation SHA: PENDING
+- completion-report SHA: PENDING
+- final remote SHA: PENDING
+- canonical repository: https://github.com/aurtxx/haptric
