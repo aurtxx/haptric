@@ -13,7 +13,7 @@ from rest_framework import decorators, response, serializers, status, viewsets
 from rest_framework.decorators import api_view
 from .models import Answer, Attempt, AuditEvent, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Student, Subject, SyncOutbox, User
 from .permissions import IsOrgMember, IsOrgStaff, IsStudent, IsStudentOrStaff
-from .serializers import AnswerSerializer, AnswerSubmissionSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StudentProvisionSerializer, StudentSerializer, SubjectSerializer, UserSerializer
+from .serializers import AnswerSerializer, AnswerSubmissionSerializer, AttemptSerializer, ExamAssignmentSerializer, ExamQuestionSerializer, ExamSectionSerializer, ExamSerializer, OrganizationSerializer, QuestionSerializer, ResultSerializer, StaffAttemptReviewSerializer, StudentProvisionSerializer, StudentSerializer, SubjectSerializer, UserSerializer
 from .services import expire_attempt_if_needed, submit_attempt, validate_answer_value
 
 def health(_request):
@@ -235,7 +235,7 @@ class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
             "student",
             "student__user",
             "result",
-        ).prefetch_related("answers")
+        ).prefetch_related("answers", "exam__sections__exam_questions__question")
         if self.request.user.role == User.Roles.STUDENT:
             qs = qs.filter(student__user=self.request.user)
         return qs
@@ -259,6 +259,12 @@ class AttemptViewSet(viewsets.ReadOnlyModelViewSet):
             expire_attempt_if_needed(attempt_id=instance.id, actor=request.user)
             instance = self.get_queryset().get(id=instance.id)
         return response.Response(self.get_serializer(instance).data)
+
+    @decorators.action(detail=True, methods=["get"], permission_classes=[IsOrgStaff], url_path="review")
+    def review(self, request, pk=None):
+        """Return server-derived question review data to authorized staff only."""
+        attempt = self.get_object()
+        return response.Response(StaffAttemptReviewSerializer(attempt).data)
 
     @decorators.action(detail=False, methods=["post"], permission_classes=[IsStudent])
     @transaction.atomic

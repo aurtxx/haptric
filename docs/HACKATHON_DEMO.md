@@ -24,8 +24,9 @@ credentials or private records.
    answers, and server deadline are restored.
 6. Answer the final question and submit. Show the server-calculated score and
    counts.
-7. Return to the staff session, open Results, and show the submitted attempt,
-   student ID, exam title, status, and matching score.
+7. Return to the staff session, open Results, select **Review attempt**, and
+   show the submitted student ID, exam title, matching score, and the exact
+   three question-level responses, correctness states, and marks.
 
 ## Proof points
 

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from .services import score_answer
 from .models import Answer, Attempt, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Result, Student, Subject, User
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -178,3 +179,69 @@ class AttemptSerializer(serializers.ModelSerializer):
         read_only_fields = fields
     def get_result(self, obj):
         return ResultSerializer(obj.result).data if hasattr(obj, "result") else None
+
+
+class StaffAttemptReviewSerializer(serializers.Serializer):
+    """Explicit staff-only attempt review contract.
+
+    The regular AttemptSerializer is intentionally shared with students and
+    never contains answer keys. This representation is only used by the
+    staff-protected ``review`` action and reveals correctness after submission.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    student = serializers.UUIDField(source="student.id", read_only=True)
+    student_name = serializers.CharField(source="student.name", read_only=True)
+    student_id = serializers.CharField(source="student.student_id", read_only=True)
+    exam = serializers.UUIDField(source="exam.id", read_only=True)
+    exam_title = serializers.CharField(source="exam.title", read_only=True)
+    status = serializers.CharField(read_only=True)
+    started_at = serializers.DateTimeField(read_only=True)
+    deadline_at = serializers.DateTimeField(read_only=True)
+    submitted_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    result = serializers.SerializerMethodField()
+    questions = serializers.SerializerMethodField()
+
+    def get_result(self, obj):
+        result = getattr(obj, "result", None)
+        return ResultSerializer(result).data if result else None
+
+    def get_questions(self, obj):
+        submitted = obj.status == Attempt.Status.SUBMITTED
+        answers = {answer.question_id: answer for answer in obj.answers.all()}
+        rows = []
+        sections = obj.exam.sections.all()
+        for section in sections:
+            for link in section.exam_questions.all():
+                question = link.question
+                answer = answers.get(question.id)
+                response_value = answer.value if answer else None
+                state = "unanswered"
+                marks_awarded = "0.00"
+                if answer and submitted:
+                    awarded, is_correct = score_answer(question, answer.value)
+                    state = "correct" if is_correct else "incorrect"
+                    marks_awarded = str(awarded)
+                elif answer and not submitted:
+                    state = "pending"
+                    marks_awarded = None
+                row = {
+                    "question_id": str(question.id),
+                    "section_id": str(section.id),
+                    "section_name": section.name,
+                    "section_position": section.position,
+                    "position": link.position,
+                    "prompt": question.prompt,
+                    "question_type": question.question_type,
+                    "options": question.options,
+                    "student_response": response_value,
+                    "answer_state": state,
+                    "marks_awarded": marks_awarded,
+                }
+                # Correctness and answer keys are deliberately withheld while
+                # an attempt is active; staff review becomes complete only
+                # after the persisted submission transition.
+                if submitted:
+                    row["correct_answer"] = question.correct_answer
+                rows.append(row)
+        return rows

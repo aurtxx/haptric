@@ -116,6 +116,29 @@ export interface ApiAttempt {
   result: ApiResult | null
 }
 
+export type AttemptAnswerState = 'correct' | 'incorrect' | 'unanswered' | 'pending'
+
+export interface ApiAttemptReviewQuestion {
+  question_id: string
+  section_id?: string
+  section_name?: string
+  section_position?: number
+  position: number
+  prompt: string
+  question_type: QuestionType
+  options: unknown[]
+  student_response: unknown
+  correct_answer?: unknown
+  answer_state: AttemptAnswerState
+  marks_awarded?: string | null
+  positive_marks?: string
+  negative_marks?: string
+}
+
+export interface ApiAttemptReview extends ApiAttempt {
+  questions: ApiAttemptReviewQuestion[]
+}
+
 export interface Question {
   id: string
   prompt: string

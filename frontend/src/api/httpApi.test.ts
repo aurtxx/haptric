@@ -114,4 +114,17 @@ describe('httpApi authentication boundary', () => {
     expect(new Headers(fetchMock.mock.calls[1][1].headers).get('Idempotency-Key')).toBe('attempt-key-1')
     expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ question: 'question-1', value: 'A' })
   })
+
+  it('loads the staff-only persisted attempt review contract', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({
+      id: 'attempt-1', exam: 'exam-1', exam_title: 'Demo Exam', student: 'student-1', student_name: 'Learner', student_id: 'HACK-001',
+      status: 'submitted', started_at: '2026-01-01T00:00:00Z', deadline_at: '2026-01-01T00:30:00Z', submitted_at: '2026-01-01T00:10:00Z', answers: [],
+      result: { score: '1.00', correct_count: 1, incorrect_count: 0, unanswered_count: 0, calculated_at: '2026-01-01T00:10:00Z' },
+      questions: [{ question_id: 'question-1', section_name: 'Core', position: 1, prompt: 'Which?', question_type: 'single', options: ['A', 'B'], student_response: 'A', correct_answer: 'A', answer_state: 'correct', marks_awarded: '1.00' }],
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(httpApi.getAttemptReview('attempt-1')).resolves.toMatchObject({ id: 'attempt-1', questions: [{ answer_state: 'correct', marks_awarded: '1.00' }] })
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/attempts/attempt-1/review/')
+  })
 })

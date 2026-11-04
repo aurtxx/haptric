@@ -37,6 +37,7 @@ describe('App session boundary', () => {
       .mockResolvedValueOnce(jsonResponse([{ id: 'exam-1', title: 'Demo Exam', duration_minutes: 30, available_from: null, available_until: null, status: 'published', published_at: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z', sections: [] }]))
       .mockResolvedValueOnce(jsonResponse([{ id: 'student-1', name: 'Hackathon Student', student_id: 'HACK-001', is_active: true, created_at: '2026-01-01T00:00:00Z' }]))
       .mockResolvedValueOnce(jsonResponse([{ id: 'attempt-1', exam: 'exam-1', student: 'student-1', status: 'submitted', started_at: '2026-01-01T00:00:00Z', deadline_at: '2026-01-01T00:30:00Z', submitted_at: '2026-01-01T00:10:00Z', answers: [], result: { score: '8.00', correct_count: 8, incorrect_count: 1, unanswered_count: 1, calculated_at: '2026-01-01T00:10:00Z' } }]))
+      .mockResolvedValueOnce(jsonResponse({ id: 'attempt-1', exam: 'exam-1', exam_title: 'Demo Exam', student: 'student-1', student_name: 'Hackathon Student', student_id: 'HACK-001', status: 'submitted', started_at: '2026-01-01T00:00:00Z', deadline_at: '2026-01-01T00:30:00Z', submitted_at: '2026-01-01T00:10:00Z', answers: [], result: { score: '8.00', correct_count: 8, incorrect_count: 1, unanswered_count: 1, calculated_at: '2026-01-01T00:10:00Z' }, questions: [{ question_id: 'q1', position: 1, prompt: 'Which?', question_type: 'single', options: ['A', 'B'], student_response: 'A', correct_answer: 'A', answer_state: 'correct', marks_awarded: '1.00' }] }))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
@@ -47,6 +48,13 @@ describe('App session boundary', () => {
     expect(screen.getByText('Hackathon Student')).toBeTruthy()
     expect(screen.getByText('HACK-001')).toBeTruthy()
     expect(screen.getByText('8.00')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Review attempt' }))
+    expect(await screen.findByText('ATTEMPT REVIEW · STAFF ONLY')).toBeTruthy()
+    expect(screen.getByText('Question 1')).toBeTruthy()
+    expect(screen.getAllByText('Correct').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('1.00 marks')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Back to results/ }))
+    expect(await screen.findByRole('heading', { name: 'Review every attempt.', level: 2 })).toBeTruthy()
   })
 
   it('shows invalid credentials without entering a role preview', async () => {

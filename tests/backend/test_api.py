@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from exams.models import Answer, Attempt, Exam, ExamAssignment, ExamQuestion, ExamSection, Organization, Question, Result, Student, User
+from exams.services import submit_attempt
 
 
 @pytest.fixture
@@ -115,6 +116,120 @@ def test_staff_attempt_review_is_org_scoped_and_includes_safe_result_summary(ten
     client.force_authenticate(tenant_fixture["other_admin"])
     assert client.get("/api/v1/attempts/").json() == []
     assert client.get(f"/api/v1/attempts/{attempt.id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_staff_review_returns_ordered_question_states_and_reconciles_marks(tenant_fixture):
+    exam = tenant_fixture["exam"]
+    section = exam.sections.first()
+    incorrect = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.SINGLE, prompt="Second", options=["C", "D"],
+        correct_answer="C", positive_marks=2, negative_marks=1,
+    )
+    unanswered = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.SINGLE, prompt="Third", options=["E", "F"],
+        correct_answer="E", positive_marks=2, negative_marks=1,
+    )
+    ExamQuestion.objects.create(section=section, question=incorrect, position=2)
+    ExamQuestion.objects.create(section=section, question=unanswered, position=3)
+    attempt = Attempt.objects.create(
+        exam=exam, student=tenant_fixture["student"],
+        started_at=timezone.now() - timedelta(minutes=5),
+        deadline_at=timezone.now() + timedelta(minutes=5), idempotency_key="review-ordered-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    Answer.objects.create(attempt=attempt, question=incorrect, value="D")
+
+    student_client = APIClient()
+    student_client.force_authenticate(tenant_fixture["student_user"])
+    submitted = student_client.post(f"/api/v1/attempts/{attempt.id}/submit/", {}, format="json")
+    assert submitted.status_code == 200
+    assert Decimal(submitted.json()["score"]) == Decimal("2.00")
+
+    staff_client = APIClient()
+    staff_client.force_authenticate(tenant_fixture["admin"])
+    review = staff_client.get(f"/api/v1/attempts/{attempt.id}/review/")
+    assert review.status_code == 200
+    payload = review.json()
+    assert payload["student_name"] == "Maya"
+    assert payload["student_id"] == "MAYA-1"
+    assert payload["exam_title"] == "Foundations"
+    assert payload["result"]["score"] == "2.00"
+    questions = payload["questions"]
+    assert [item["position"] for item in questions] == [1, 2, 3]
+    assert [item["answer_state"] for item in questions] == ["correct", "incorrect", "unanswered"]
+    assert [item["marks_awarded"] for item in questions] == ["3.00", "-1.00", "0.00"]
+    assert sum(Decimal(item["marks_awarded"]) for item in questions) == Decimal(payload["result"]["score"])
+    assert [item["student_response"] for item in questions] == ["A", "D", None]
+    assert questions[0]["correct_answer"] == "A"
+
+    teacher = User.objects.create_user(username="teacher", password="pw", organization=tenant_fixture["org"], role=User.Roles.TEACHER)
+    teacher_client = APIClient()
+    teacher_client.force_authenticate(teacher)
+    assert teacher_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 200
+    assert student_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 403
+    student_attempt = student_client.get(f"/api/v1/attempts/{attempt.id}/")
+    assert student_attempt.status_code == 200
+    assert "correct_answer" not in student_attempt.json()
+    assert "positive_marks" not in student_attempt.json()
+    assert "negative_marks" not in student_attempt.json()
+    other_client = APIClient()
+    other_client.force_authenticate(tenant_fixture["other_admin"])
+    assert other_client.get(f"/api/v1/attempts/{attempt.id}/review/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_active_staff_review_withholds_correctness_and_marks(tenant_fixture):
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"], student=tenant_fixture["student"],
+        started_at=timezone.now(), deadline_at=timezone.now() + timedelta(minutes=5),
+        idempotency_key="review-active-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    response = client.get(f"/api/v1/attempts/{attempt.id}/review/")
+    assert response.status_code == 200
+    question = response.json()["questions"][0]
+    assert response.json()["status"] == Attempt.Status.IN_PROGRESS
+    assert question["answer_state"] == "pending"
+    assert question["marks_awarded"] is None
+    assert "correct_answer" not in question
+
+
+@pytest.mark.django_db
+def test_staff_review_uses_existing_multi_and_numeric_scoring(tenant_fixture):
+    section = tenant_fixture["exam"].sections.first()
+    multi = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.MULTI, prompt="Select two", options=["A", "B", "C"],
+        correct_answer=["A", "B"], positive_marks=2, negative_marks=1,
+    )
+    numeric = Question.objects.create(
+        organization=tenant_fixture["org"], created_by=tenant_fixture["admin"],
+        question_type=Question.Types.NUMERIC, prompt="Two plus two", options=[],
+        correct_answer="4", positive_marks=4, negative_marks=1,
+    )
+    ExamQuestion.objects.create(section=section, question=multi, position=2)
+    ExamQuestion.objects.create(section=section, question=numeric, position=3)
+    attempt = Attempt.objects.create(
+        exam=tenant_fixture["exam"], student=tenant_fixture["student"],
+        deadline_at=timezone.now() + timedelta(minutes=5), idempotency_key="review-normalized-attempt",
+    )
+    Answer.objects.create(attempt=attempt, question=tenant_fixture["question"], value="A")
+    Answer.objects.create(attempt=attempt, question=multi, value=["B", "A"])
+    Answer.objects.create(attempt=attempt, question=numeric, value="4.0")
+    _, result = submit_attempt(attempt_id=attempt.id, actor=tenant_fixture["student_user"])
+    assert result.score == Decimal("9.00")
+
+    client = APIClient()
+    client.force_authenticate(tenant_fixture["admin"])
+    rows = client.get(f"/api/v1/attempts/{attempt.id}/review/").json()["questions"]
+    assert [row["answer_state"] for row in rows] == ["correct", "correct", "correct"]
+    assert [row["marks_awarded"] for row in rows] == ["3.00", "2.00", "4.00"]
+    assert sum(Decimal(row["marks_awarded"]) for row in rows) == result.score
 
 
 @pytest.mark.django_db
@@ -284,6 +399,13 @@ def test_published_exam_content_and_question_keys_are_immutable(tenant_fixture):
     assert delete_link.status_code == 400
     update_question = client.patch(f"/api/v1/questions/{question.id}/", {"prompt": "Changed"}, format="json")
     assert update_question.status_code == 400
+    for mutation in (
+        {"options": ["A", "C"]},
+        {"correct_answer": "B"},
+        {"positive_marks": "4.00"},
+        {"negative_marks": "2.00"},
+    ):
+        assert client.patch(f"/api/v1/questions/{question.id}/", mutation, format="json").status_code == 400
     delete_question = client.delete(f"/api/v1/questions/{question.id}/")
     assert delete_question.status_code == 400
     update_exam = client.patch(f"/api/v1/exams/{exam.id}/", {"title": "Changed"}, format="json")
