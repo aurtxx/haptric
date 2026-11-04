@@ -18,15 +18,15 @@ e968c802daa0afb64b18080acbce37f883106d80
 
 ## Implementation/Release Commit
 
-PENDING
+97cbd7c6660d0c11b119da7439c6b4ec1c9fccef
 
 ## Completion Report Commit
 
-PENDING
+PENDING (set in the delivery metadata follow-up)
 
 ## Final Remote Head
 
-PENDING
+PENDING (set in the delivery metadata follow-up)
 
 ## Completed
 
@@ -94,8 +94,8 @@ SUBMIT / RECORD DEMO after adding verified official event metadata and the final
 
 ## GitHub Verification
 
-- pushed branch: PENDING
-- release SHA: PENDING
-- completion-report SHA: PENDING
-- final remote SHA: PENDING
-- canonical commit URL: PENDING
+- pushed branch: `release/hackathon-final`
+- release SHA: `97cbd7c6660d0c11b119da7439c6b4ec1c9fccef`
+- completion-report SHA: PENDING (set in the delivery metadata follow-up)
+- final remote SHA: PENDING (set in the delivery metadata follow-up)
+- canonical commit URL: https://github.com/aurtxx/haptric/commit/97cbd7c6660d0c11b119da7439c6b4ec1c9fccef
