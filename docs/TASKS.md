@@ -44,3 +44,8 @@ GitHub verification: canonical remote is `https://github.com/aurtxx/haptric.git`
 P1.5 verification: the local testing guide is documentation-only and must be updated whenever startup commands, routes, API contracts, or demo scripts change. It does not create credentials or weaken authentication. The latest exact test results and remote SHAs are recorded in `docs/LATEST_COMPLETION_REPORT.md`.
 
 Browser verification: `playwright-cli --version` returned 0.1.23. `playwright-cli install --skills=agents` succeeded. A named headed persistent `research` session opened `https://example.com`, produced `.playwright-cli/example-headed.png` and a snapshot, evaluated the title, and closed. No login, cookies, storage state, or product research were performed.
+## Fresh pitch prototype
+
+| ID | Task | Owner | Status | Evidence |
+| --- | --- | --- | --- | --- |
+| P2.PITCH | Fresh standalone pitching prototype | manager + pitch_design | verified-local | Original design; browser walkthrough and 1440/820/390px screenshots pass; no external requests or credentials; handoff in pitch-prototype/DELIVERY.md |
